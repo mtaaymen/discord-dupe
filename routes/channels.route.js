@@ -1,0 +1,167 @@
+const express = require('express')
+const router = express.Router()
+
+const { authJwt } = require('../middlewares')
+const { unsubscribeAllUsers } = require('../sockets/helpers')
+
+const db = require("../models")
+const Guild = db.guild
+const Channel = db.channel
+const Role = db.role
+const Message = db.message
+
+// edit channel
+router.patch('/:channel', async (req, res) => {
+    try {
+        const channelId = req.params.channel
+
+        // map properties from request body to channel model properties
+        const fieldMap = {
+            'channel-name': 'name',
+            'channel-topic': 'topic',
+            // add more properties here as needed
+        }
+        const updates = {}
+        for (const [key, value] of Object.entries(req.body)) {
+            const field = fieldMap[key]
+            if (field) {
+                updates[field] = value
+            }
+        }
+
+        // update the channel
+        await Channel.findByIdAndUpdate(channelId, updates)
+
+        // retrieve the updated channel object
+        const updatedChannel = await Channel.findById(channelId)
+
+        req.io.to(`guild:${updatedChannel.server}`).emit('CHANNEL_UPDATE', updatedChannel)
+
+        res.status(200).json({ message: `Channel ${channelId} updated successfully`, channel: updatedChannel })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// delete channel
+router.delete('/:channel', async (req, res) => {
+    try {
+        const channelId = req.params.channel
+
+        // find the channel and its server
+        const channel = await Channel.findById(channelId)
+        const guildId = channel.server
+        const server = await Guild.findById(guildId).populate('channels')
+
+        // ensure the server has at least one channel
+        if (server.channels.length === 1) {
+            return res.status(400).json({ message: 'Cannot delete last channel in server' });
+        }
+
+        // delete the channel
+        await Channel.findByIdAndDelete(channelId)
+
+        // remove the channel ID from the server's channels array
+        server.updateOne(guildId, {
+            $pull: { channels: channelId }
+        })
+
+        /*
+        // remove the channel ID from any roles that had it as a channel
+        await Role.updateMany(
+            { channels: channelId },
+            { $pull: { channels: channelId } }
+        )
+        */
+
+        req.io.to(`guild:${guildId}`).emit('CHANNEL_DELETE', { channel: channel._id.toString(), guild: server._id.toString() })
+        unsubscribeAllUsers( req.io, 'channel', channel._id.toString() )
+  
+        res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channel._id })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+//get channel messages list
+router.get('/:channel/messages', async (req, res) => {
+    try {
+        const channelId = req.params.channel
+        const { limit } = req.query
+    
+        // retrieve the channel object with populated messages
+        const channel = await Channel.findById(channelId).populate({
+            path: 'messages',
+            options: {
+                limit: parseInt(limit) || undefined // limit is optional and defaults to undefined
+            }
+        })
+    
+        res.status(200).json({ messages: channel.messages })
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+//get channel message by id
+router.get('/:channelId/messages/:messageId', async (req, res) => {
+    try {
+        const { channelId, messageId } = req.params
+    
+        // retrieve the message object with populated author and channel fields
+        const message = await Message.findOne({ _id: messageId, channel: channelId })
+            .populate('author', 'username')
+            .populate('channel', 'name')
+    
+        // check if the message exists
+        if (!message) return res.status(404).json({ message: 'Message not found' })
+        
+    
+        res.status(200).json({ message })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+//create message
+router.post('/:channelId/messages', authJwt, async (req, res) => {
+    try {
+        const { content } = req.body
+        const { channelId } = req.params
+        const authorId = req.user._id // Assuming you're using authentication
+
+        const channel = await Channel.findById(channelId).populate('server', '_id')
+    
+        // Create a new message object with the provided data
+        const message = new Message({
+            content,
+            author: authorId,
+            channel: channelId,
+            server: channel.server._id.toString()
+        })
+    
+        // Save the message to the database
+        await message.save()
+
+        // Add the message to the channel's messages array
+        await channel.updateOne({ $push: { messages: message._id } })
+    
+        // Populate the message object with the author's username and the channel's name
+        const populatedMessage = await Message.findById(message._id).populate('author', 'username');
+
+        req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
+    
+        // Send the populated message object in the response
+        res.status(201).json(populatedMessage)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+
+module.exports = router
