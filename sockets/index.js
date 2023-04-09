@@ -11,7 +11,7 @@ module.exports = (socket) => {
                 console.error(err)
                 socket.disconnect()
             } else {
-                //console.log(`User ${decoded.username} authenticated`)
+                console.log(`User ${decoded.username} authenticated`)
                 socket.decoded = decoded
             }
         })
@@ -19,7 +19,7 @@ module.exports = (socket) => {
 
     socket.on('sub_guilds', (guilds) => {
         if (!socket.decoded) {
-            console.error('User not authenticated')
+            //console.error('User not authenticated')
             socket.disconnect()
         } else {
             //console.log(`User ${socket.decoded.username} subscribed to guild:`, guilds)
@@ -29,7 +29,7 @@ module.exports = (socket) => {
 
     socket.on('sub_channels', (channels) => {
         if (!socket.decoded) {
-            console.error('User not authenticated')
+            //console.error('User not authenticated')
             socket.disconnect()
         } else {
             //console.log(`User ${socket.decoded.username} subscribed to channels:`, channels)
@@ -39,7 +39,7 @@ module.exports = (socket) => {
 
     socket.on('unsub_guilds', (guilds) => {
         if (!socket.decoded) {
-            console.error('User not authenticated')
+            //console.error('User not authenticated')
             socket.disconnect()
         } else {
             //console.log(`User ${socket.decoded.username} subscribed to guild:`, guilds)
@@ -49,7 +49,7 @@ module.exports = (socket) => {
 
     socket.on('unsub_channels', (channels) => {
         if (!socket.decoded) {
-            console.error('User not authenticated')
+            //console.error('User not authenticated')
             socket.disconnect()
         } else {
             //console.log(`User ${socket.decoded.username} subscribed to channels:`, channels)

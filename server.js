@@ -27,7 +27,7 @@ db.mongoose
     })
 
 const corsOptions = {
-    "origin": [config.CLIENT_URL],
+    "origin": [config.CLIENT_URL, "http://localhost:3000"],
     "methods": ['POST', 'PATCH', 'PUT', 'GET', 'OPTIONS', 'HEAD', 'DELETE'],
     "credentials": true,
     "preflightContinue": false,
