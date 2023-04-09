@@ -69,8 +69,32 @@ router.post('/:code', authJwt, async (req, res) => {
         }
 
         const populatedServer = await Guild.findById(invite.guild._id)
-            .populate('channels')
-            .populate('roles')
+            .populate({
+                path: 'invites',
+                populate: { path: 'inviter', select: 'avatar username discriminator avatar status' }
+            })
+            .populate({
+                path: 'invites',
+                populate: { path: 'channel', select: 'name' }
+            })
+            .populate({
+                path: 'invites',
+                populate: { path: 'guild', select: 'name' }
+            })
+            .populate({ path: 'owner', select: 'avatar username discriminator avatar status' })
+            .populate({ path: 'members', select: 'avatar username discriminator avatar status' })
+            .populate({
+                path: 'channels',
+                select: 'name type topic parent position permissionOverwrites messages',
+                populate: {
+                    path: 'messages',
+                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    populate: {
+                        path: 'author',
+                        select: 'avatar username discriminator avatar status'
+                    }
+                }
+            })
             .exec()
     
         return res.status(200).json({ message: 'Invite accepted', guild: populatedServer })
