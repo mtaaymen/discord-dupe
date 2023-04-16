@@ -94,6 +94,23 @@ const User = mongoose.model(
             type: Number,
             default: 0
         },
+        customStatus: {
+            status: {
+                type: String,
+                enum: [ 'offline', 'idle', 'dnd', null],
+                default: null
+            },
+            text: {
+                type: String,
+                default: null
+            },
+            emojiName: {
+                type: String
+            },
+            emojiId: {
+                type: String
+            }
+        },
         createdAt: {
             type: Date,
             default: Date.now,

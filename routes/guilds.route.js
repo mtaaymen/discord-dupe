@@ -150,14 +150,14 @@ router.get( '/:guild', authJwt, async (req, res) => {
 
     // get server by id and populate owner, memebers, channels and messages and their author
     const guild = await Guild.findOne( { _id: guildId, members: req.user._id } )
-        .populate({ path: 'owner', select: 'username discriminator avatar status' })
-        .populate({ path: 'members', select: 'username discriminator avatar status' })
+        .populate({ path: 'owner', select: 'username discriminator avatar' })
+        .populate({ path: 'members', select: 'username discriminator avatar status customStatus' })
         .populate({
             path: 'channels',
             select: 'name type topic parent position permissionOverwrites messages',
             populate: {
                 path: 'messages',
-                select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                 populate: {
                     path: 'author',
                     select: 'avatar username discriminator avatar status'

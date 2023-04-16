@@ -10,7 +10,7 @@ const config = require('./config')
 
 const io = require('socket.io')(httpServer, {
     cors: {
-        origin: config.CLIENT_URL,
+        origin: [config.CLIENT_URL, "http://localhost:3000"],
         methods: ["GET", "POST"]
     }
 })

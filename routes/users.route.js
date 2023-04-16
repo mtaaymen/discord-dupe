@@ -28,14 +28,14 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                 path: 'invites',
                 populate: { path: 'guild', select: 'name' }
             })
-            .populate({ path: 'owner', select: 'avatar username discriminator avatar status' })
-            .populate({ path: 'members', select: 'avatar username discriminator avatar status' })
+            .populate({ path: 'owner', select: 'avatar username discriminator avatar status customStatus' })
+            .populate({ path: 'members', select: 'avatar username discriminator avatar status customStatus' })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position permissionOverwrites messages',
                 populate: {
                     path: 'messages',
-                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: {
                         path: 'author',
                         select: 'avatar username discriminator avatar status'

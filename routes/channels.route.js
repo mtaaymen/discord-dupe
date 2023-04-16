@@ -34,10 +34,19 @@ router.patch('/:channel', async (req, res) => {
 
         // retrieve the updated channel object
         const updatedChannel = await Channel.findById(channelId)
+        .select('name server type topic parent position permissionOverwrites messages')
+        .populate({
+            path: 'messages',
+            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+            populate: {
+                path: 'author',
+                select: 'avatar username discriminator avatar status'
+            }
+        })
 
         req.io.to(`guild:${updatedChannel.server}`).emit('CHANNEL_UPDATE', updatedChannel)
 
-        res.status(200).json({ message: `Channel ${channelId} updated successfully`, channel: updatedChannel })
+        res.status(200).json( updatedChannel )
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
@@ -51,7 +60,7 @@ router.delete('/:channel', async (req, res) => {
 
         // find the channel and its server
         const channel = await Channel.findById(channelId)
-        const guildId = channel.server
+        const guildId = channel.server.toString()
         const server = await Guild.findById(guildId).populate('channels')
 
         // ensure the server has at least one channel
@@ -61,6 +70,7 @@ router.delete('/:channel', async (req, res) => {
 
         // delete the channel
         await Channel.findByIdAndDelete(channelId)
+        await Message.deleteMany({ server: guildId })
 
         // remove the channel ID from the server's channels array
         server.updateOne(guildId, {
@@ -75,10 +85,10 @@ router.delete('/:channel', async (req, res) => {
         )
         */
 
-        req.io.to(`guild:${guildId}`).emit('CHANNEL_DELETE', { channel: channel._id.toString(), guild: server._id.toString() })
-        unsubscribeAllUsers( req.io, 'channel', channel._id.toString() )
+        req.io.to(`guild:${guildId}`).emit('CHANNEL_DELETE', { channel: channelId, guild: guildId })
+        unsubscribeAllUsers( req.io, 'channel', channelId )
   
-        res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channel._id })
+        res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channelId })
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
@@ -151,12 +161,60 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
         await channel.updateOne({ $push: { messages: message._id } })
     
         // Populate the message object with the author's username and the channel's name
-        const populatedMessage = await Message.findById(message._id).populate('author', 'username');
+        const populatedMessage = await Message.findById(message._id).populate('author', 'username')
 
         req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
     
         // Send the populated message object in the response
         res.status(201).json(populatedMessage)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+//delete messsage
+router.delete('/:channelId/messages/:messageId', async (req, res) => {
+    try {
+        const { channelId, messageId } = req.params
+
+        // find the channel
+        const channel = await Channel.findById(channelId)
+
+        // delete the message
+        await Message.findByIdAndDelete(messageId)
+
+        // remove the channel ID from the server's channels array
+        channel.updateOne(channelId, {
+            $pull: { messages: messageId }
+        })
+
+        req.io.to(`channel:${channelId}`).emit('MESSAGE_DELETE', { message: messageId, channel: channelId, server: channel.server.toString() })
+  
+        res.status(200).json({ message: `Message ${messageId} deleted successfully`, message: messageId, channel: channelId, server: channel.server.toString() })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// edit message
+router.patch('/:channelId/messages/:messageId', async (req, res) => {
+    try {
+        const { content } = req.body
+        const { channelId, messageId } = req.params
+
+        const updates = {
+            content
+        }
+
+        // update the channel
+        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate('author', 'username')
+        if (!updatedMessage) return res.status(404).send('Message not found')
+
+        req.io.to(`channel:${channelId}`).emit('MESSAGE_UPDATE', updatedMessage)
+
+        res.status(200).json( updatedMessage )
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })

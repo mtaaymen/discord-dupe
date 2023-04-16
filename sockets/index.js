@@ -1,9 +1,9 @@
 const jwt = require('jsonwebtoken')
 const config = require('../config')
-const { joinRooms, leaveRooms } = require('./helpers')
+const { joinRooms, leaveRooms, onlineStatus } = require('./helpers')
 
 module.exports = (socket) => {
-  console.log(`Socket ${socket.id} connected`);
+    //console.log(`Socket ${socket.id} connected`)
 
     socket.on('authenticate', (token) => {
         jwt.verify(token, config.JWT_SECRET, (err, decoded) => {
@@ -11,8 +11,10 @@ module.exports = (socket) => {
                 console.error(err)
                 socket.disconnect()
             } else {
-                console.log(`User ${decoded.username} authenticated`)
+                //console.log(`User ${decoded.username} authenticated`)
                 socket.decoded = decoded
+                
+                onlineStatus( socket, decoded.userId, "online" )
             }
         })
     })
@@ -57,9 +59,24 @@ module.exports = (socket) => {
         }
     })
 
+    socket.on('custom_status', (statusFields) => {
+        if (socket.decoded) {
+            onlineStatus( socket, socket.decoded.userId, statusFields.status, true )
+        }
+    })
+
+    socket.on('user_status', (statusFields) => {
+        if (socket.decoded) {
+            onlineStatus( socket, socket.decoded.userId, statusFields.status)
+        }
+    })
+
     socket.on('disconnect', () => {
+        if (socket.decoded) {
+            onlineStatus( socket, socket.decoded.userId, "offline" )
+        }
         //console.log(`Socket ${socket.id} disconnected`)
         leaveRooms(socket, 'channel', socket["_channel"] || [])
         leaveRooms(socket, 'guild', socket["_guild"] || [])
-    })  
+    })
 }

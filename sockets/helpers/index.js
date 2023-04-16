@@ -1,3 +1,26 @@
+const db = require('../../models')
+const User = db.user
+
+async function onlineStatus(socket, userId, status, custom) {
+    try {
+        const update = custom
+            ? { customStatus: { status: status === 'online' ? null : status } }
+            : { status }
+
+        const user = await User.findByIdAndUpdate(userId, update, { new: true})
+            .select('username discriminator avatar status customStatus')
+
+        if (!user) return console.error(`User ${userId} not found`)
+
+        const showStatus = user.status === 'offline' ? 'offline' : ( user.customStatus.status || user.status )
+        socket.server.emit('PRESENCE_UPDATE', {user, status: showStatus})
+
+        console.log(`User ${user.username} status changed to ${showStatus}`)
+    } catch (error) {
+        console.error(error.message)
+    }
+}
+
 function joinRooms(socket, type, roomIds) {
     const newRooms = []
     const roomsSet = socket[`_${type}`] || new Set()
@@ -58,5 +81,6 @@ function unsubscribeAllUsers(io, type, roomIds) {
 module.exports = {
     unsubscribeAllUsers,
     joinRooms,
-    leaveRooms
+    leaveRooms,
+    onlineStatus
 }
