@@ -24,8 +24,14 @@ db.mongoose
         useNewUrlParser: true,
         useUnifiedTopology: true
     })
-    .then(() => {
+    .then(async () => {
         console.log("Successfully connected to MongoDB.")
+        try {
+            await User.updateMany({}, { status: 'offline' })
+            console.log('All User status set to offline')
+        } catch (err) {
+            console.error('Error setting User status to offline:', err)
+        }
     })
 
 const corsOptions = {
@@ -67,11 +73,6 @@ app.use( '/invites', invitesRoute )
 io.on('connection', socketEvents)
 
 httpServer.listen( config.PORT, () => {
-    User.updateMany({}, { status: 'offline' }, (err) => {
-        if (err) console.error('Error setting User status to offline:', err)
-        else console.log('All User status set to offline')
-    })
-    
     console.log(`Listening on port ${config.PORT}`)
 })
 
