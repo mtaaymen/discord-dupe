@@ -15,7 +15,9 @@ const io = require('socket.io')(httpServer, {
     }
 })
 
-db.mongoose.set('strictQuery', false);
+const User = db.user
+
+db.mongoose.set('strictQuery', false)
 
 db.mongoose
     .connect(config.MONGODB_URI, {
@@ -64,7 +66,14 @@ app.use( '/invites', invitesRoute )
 
 io.on('connection', socketEvents)
 
-httpServer.listen( config.PORT, () => console.log(`Listening on port ${config.PORT}`) )
+httpServer.listen( config.PORT, () => {
+    User.updateMany({}, { status: 'offline' }, (err) => {
+        if (err) console.error('Error setting User status to offline:', err)
+        else console.log('All User status set to offline')
+    })
+    
+    console.log(`Listening on port ${config.PORT}`)
+})
 
 
 
