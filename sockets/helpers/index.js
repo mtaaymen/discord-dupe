@@ -10,7 +10,7 @@ async function onlineStatus(socket, userId, status, custom) {
         const user = await User.findByIdAndUpdate(userId, update, { new: true})
             .select('username discriminator avatar status customStatus')
 
-        if (!user) return console.error(`User ${userId} not found`)
+        if (!user) return console.error(`User ${userId} not found.`)
 
         const showStatus = user.status === 'offline' ? 'offline' : ( user.customStatus.status || user.status )
         socket.server.emit('PRESENCE_UPDATE', {user, status: showStatus})
