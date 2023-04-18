@@ -9,6 +9,7 @@ module.exports = (socket) => {
         jwt.verify(token, config.JWT_SECRET, (err, decoded) => {
             if (err) {
                 console.error(err)
+                socket.emit('NOT_AUTH', true)
                 socket.disconnect()
             } else {
                 //console.log(`User ${decoded.username} authenticated`)
