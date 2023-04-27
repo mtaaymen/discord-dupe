@@ -12,5 +12,6 @@ db.channel = require("./channel.model")
 db.message = require("./message.model")
 db.role = require("./role.model")
 db.invite = require("./invite.model")
+db.dmChannel = require("./dmChannel.model")
 
 module.exports = db

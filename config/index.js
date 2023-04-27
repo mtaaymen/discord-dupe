@@ -5,4 +5,6 @@ module.exports = {
     JWT_SECRET: "Logiciel-Secret",
     CLIENT_URL: "https://discord-dupe.netlify.app",
     PORT: 3001,
+    SOCKET_SECRET: "Logiciel-Secret",
+    SOCKET_ALGORITHM: 'aes-256-cbc'
 }

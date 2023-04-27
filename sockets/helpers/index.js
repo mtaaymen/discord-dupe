@@ -21,6 +21,14 @@ async function onlineStatus(socket, userId, status, custom) {
     }
 }
 
+function sendToAllUserIds(io, userIds = [], event, data) {
+    io.sockets.sockets.forEach( socket => {
+        if (socket.decoded && userIds.includes(socket.decoded.userId)) {
+            socket.emit(event, data)
+        }
+    })
+}
+
 function joinRooms(socket, type, roomIds) {
     const newRooms = []
     const roomsSet = socket[`_${type}`] || new Set()
@@ -82,5 +90,6 @@ module.exports = {
     unsubscribeAllUsers,
     joinRooms,
     leaveRooms,
-    onlineStatus
+    onlineStatus,
+    sendToAllUserIds
 }

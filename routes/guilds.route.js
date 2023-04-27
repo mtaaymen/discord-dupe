@@ -91,11 +91,9 @@ router.post( '/', authJwt, async (req, res) => {
 
         // populate channels and roles and send response
         const populatedServer = await Guild.findById(server._id)
-            .populate('channels')
-            .populate('roles')
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username discriminator avatar status' }
+                populate: { path: 'inviter', select: 'avatar username discriminator status' }
             })
             .populate({
                 path: 'invites',
@@ -104,6 +102,20 @@ router.post( '/', authJwt, async (req, res) => {
             .populate({
                 path: 'invites',
                 populate: { path: 'guild', select: 'name' }
+            })
+            .populate({ path: 'owner', select: 'avatar username discriminator status' })
+            .populate({ path: 'members', select: 'avatar username discriminator status' })
+            .populate({
+                path: 'channels',
+                select: 'name type topic parent position permissionOverwrites messages',
+                populate: {
+                    path: 'messages',
+                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    populate: {
+                        path: 'author',
+                        select: 'avatar username discriminator status'
+                    }
+                }
             })
             .exec()
     
@@ -146,25 +158,25 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
 // get guild
 router.get( '/:guild', authJwt, async (req, res) => {
     try {
-    const guildId = req.params.guild
+        const guildId = req.params.guild
 
-    // get server by id and populate owner, memebers, channels and messages and their author
-    const guild = await Guild.findOne( { _id: guildId, members: req.user._id } )
-        .populate({ path: 'owner', select: 'username discriminator avatar' })
-        .populate({ path: 'members', select: 'username discriminator avatar status customStatus' })
-        .populate({
-            path: 'channels',
-            select: 'name type topic parent position permissionOverwrites messages',
-            populate: {
-                path: 'messages',
-                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+        // get server by id and populate owner, memebers, channels and messages and their author
+        const guild = await Guild.findOne( { _id: guildId, members: req.user._id } )
+            .populate({ path: 'owner', select: 'username discriminator avatar' })
+            .populate({ path: 'members', select: 'username discriminator avatar status customStatus' })
+            .populate({
+                path: 'channels',
+                select: 'name type topic parent position permissionOverwrites messages',
                 populate: {
-                    path: 'author',
-                    select: 'avatar username discriminator avatar status'
+                    path: 'messages',
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    populate: {
+                        path: 'author',
+                        select: 'avatar username discriminator status'
+                    }
                 }
-            }
-        })
-        .exec()
+            })
+            .exec()
 
         if (!guild) throw new Error('Guild not found')
 

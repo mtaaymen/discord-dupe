@@ -72,6 +72,14 @@ module.exports = (socket) => {
         }
     })
 
+    socket.on('typing_start', (typing) => {
+        if (socket.decoded) {
+            const { username, userId } = socket.decoded
+            const { channel, guild } = typing
+            socket.to(`channel:${typing.channel}`).emit('TYPING_START', {username, userId, channel, guild})
+        }
+    })
+
     socket.on('disconnect', () => {
         if (socket.decoded) {
             onlineStatus( socket, socket.decoded.userId, "offline" )

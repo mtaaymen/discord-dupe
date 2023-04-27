@@ -43,7 +43,11 @@ const User = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'User',
         }],
-        friendRequests: [{
+        sentFriendRequests: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+        }],
+        pendingFriendRequests: [{
             type: Schema.Types.ObjectId,
             ref: 'User',
         }],
@@ -58,6 +62,10 @@ const User = mongoose.model(
         mutedServers: [{
             type: Schema.Types.ObjectId,
             ref: 'Server',
+        }],
+        channels: [{
+            type: Schema.Types.ObjectId,
+            ref: 'Channel' 
         }],
         discriminator: {
             type: String,

@@ -21,8 +21,7 @@ const Message = mongoose.model(
         },
         server: {
             type: Schema.Types.ObjectId,
-            ref: 'Guild',
-            required: true,
+            ref: 'Guild'
         },
         attachments: [{
             url: String,

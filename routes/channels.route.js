@@ -8,6 +8,7 @@ const db = require("../models")
 const Guild = db.guild
 const Channel = db.channel
 const Role = db.role
+const Invite = db.invite
 const Message = db.message
 
 // edit channel
@@ -66,6 +67,20 @@ router.delete('/:channel', async (req, res) => {
         // ensure the server has at least one channel
         if (server.channels.length === 1) {
             return res.status(400).json({ message: 'Cannot delete last channel in server' });
+        }
+
+        const inviteExists = await Invite.exists( { channel: channelId, guild: guildId } )
+        if( inviteExists ) {
+            let firstChannelId
+
+            for (let i = 0; i < server.channels.length; i++) {
+                if (server.channels[i]._id.toString() !== channelId) {
+                    firstChannelId = server.channels[i]._id.toString()
+                    break
+                }
+            }
+
+            await Invite.updateMany({ channel: channelId, guild: guildId }, { channel: firstChannelId })
         }
 
         // delete the channel
@@ -142,17 +157,18 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
         const { content } = req.body
         const { channelId } = req.params
-        const authorId = req.user._id // Assuming you're using authentication
+        const authorId = req.user._id
 
         const channel = await Channel.findById(channelId).populate('server', '_id')
-    
+
         // Create a new message object with the provided data
         const message = new Message({
             content,
             author: authorId,
             channel: channelId,
-            server: channel.server._id.toString()
+            ...(channel?.server && { server: channel.server._id.toString() })
         })
+
     
         // Save the message to the database
         await message.save()
@@ -189,9 +205,13 @@ router.delete('/:channelId/messages/:messageId', async (req, res) => {
             $pull: { messages: messageId }
         })
 
-        req.io.to(`channel:${channelId}`).emit('MESSAGE_DELETE', { message: messageId, channel: channelId, server: channel.server.toString() })
+        req.io.to(`channel:${channelId}`).emit('MESSAGE_DELETE',{
+            message: messageId,
+            channel: channelId,
+            ...(channel?.server && { server: channel.server.toString() })
+        })
   
-        res.status(200).json({ message: `Message ${messageId} deleted successfully`, message: messageId, channel: channelId, server: channel.server.toString() })
+        res.status(200).json({ message: `Message ${messageId} deleted successfully`, })
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })

@@ -68,6 +68,9 @@ router.post('/:code', authJwt, async (req, res) => {
             await invite.save()
         }
 
+        const member = await User.findOne({_id: req.user._id }).select('avatar username discriminator avatar status')
+        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member })
+
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({
                 path: 'invites',

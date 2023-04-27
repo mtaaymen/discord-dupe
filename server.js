@@ -8,12 +8,20 @@ const cookieParser = require( 'cookie-parser' )
 const db = require("./models")
 const config = require('./config')
 
+const encrypt = require('socket.io-encrypt')
+const encryptionOpts = {
+    secret: config.SOCKET_SECRET,
+    algorithm: config.SOCKET_ALGORITHM
+}
+
 const io = require('socket.io')(httpServer, {
     cors: {
         origin: [config.CLIENT_URL, "http://localhost:3000"],
         methods: ["GET", "POST"]
     }
 })
+//io.use(encrypt(encryptionOpts))
+
 
 const User = db.user
 
