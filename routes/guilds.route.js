@@ -111,10 +111,17 @@ router.post( '/', authJwt, async (req, res) => {
                 populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
+                    populate: [{
                         path: 'author',
                         select: 'avatar username discriminator status'
-                    }
+                    }, {
+                        path: 'hasReply',
+                        select: 'content author',
+                        populate: {
+                            path: 'author',
+                            select: 'username'
+                        }
+                    }]
                 }
             })
             .exec()

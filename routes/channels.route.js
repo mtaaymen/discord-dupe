@@ -155,7 +155,7 @@ router.get('/:channelId/messages/:messageId', async (req, res) => {
 //create message
 router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
-        const { content } = req.body
+        const { content, hasReply } = req.body
         const { channelId } = req.params
         const authorId = req.user._id
 
@@ -166,6 +166,7 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
             content,
             author: authorId,
             channel: channelId,
+            hasReply,
             ...(channel?.server && { server: channel.server._id.toString() })
         })
 
@@ -177,7 +178,18 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
         await channel.updateOne({ $push: { messages: message._id } })
     
         // Populate the message object with the author's username and the channel's name
-        const populatedMessage = await Message.findById(message._id).populate('author', 'username')
+        const populatedMessage = await Message.findById(message._id)
+            .populate([{
+                path: 'author',
+                select: 'avatar username discriminator status'
+            }, {
+                path: 'hasReply',
+                select: 'content author',
+                populate: {
+                    path: 'author',
+                    select: 'username'
+                }
+            }])
 
         req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
     

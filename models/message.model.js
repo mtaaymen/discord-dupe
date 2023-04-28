@@ -23,6 +23,10 @@ const Message = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'Guild'
         },
+        hasReply: {
+            type: Schema.Types.ObjectId,
+            ref: 'Message'
+        },
         attachments: [{
             url: String,
             contentType: String,
