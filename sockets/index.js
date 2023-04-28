@@ -76,7 +76,10 @@ module.exports = (socket) => {
         if (socket.decoded) {
             const { username, userId } = socket.decoded
             const { channel, guild } = typing
-            socket.to(`channel:${typing.channel}`).emit('TYPING_START', {username, userId, channel, guild})
+            const typingData = {username, userId, channel}
+            if( guild ) typingData.guild = guild
+
+            socket.to(`channel:${typing.channel}`).emit('TYPING_START', typingData)
         }
     })
 

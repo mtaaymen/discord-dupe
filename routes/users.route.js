@@ -159,10 +159,10 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
         }
     
 
-        sender.sentFriendRequests.addToSet(userId)
+        const senderRequestAdded = sender.sentFriendRequests.addToSet(userId)
         await sender.save()
         
-        user.pendingFriendRequests.addToSet(senderId)
+        const userRequestAdded = user.pendingFriendRequests.addToSet(senderId)
         await user.save()
 
         const sendRequestData = {
@@ -183,7 +183,10 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
             actionType: 'SEND_REQUEST'
         }
 
-        const sendRequestUserIds = [ senderId, userId ]
+        const sendRequestUserIds = []
+
+        if( senderRequestAdded.length ) sendRequestUserIds.push( senderId )
+        if( userRequestAdded.length ) sendRequestUserIds.push( userId )
 
         sendToAllUserIds(req.io, sendRequestUserIds, 'FRIEND_ACTION', sendRequestData)
     
