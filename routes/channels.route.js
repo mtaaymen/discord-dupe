@@ -155,11 +155,18 @@ router.get('/:channelId/messages/:messageId', async (req, res) => {
 //create message
 router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
-        const { content, hasReply } = req.body
+        const { content, hasReply, toUser } = req.body
         const { channelId } = req.params
         const authorId = req.user._id
 
-        const channel = await Channel.findById(channelId).populate('server', '_id')
+        let channel
+        if( toUser ) {
+            channel = await Channel.findOne({ 'participants.user': { $all: [authorId, channelId] } })
+        } else {
+            channel = await Channel.findById(channelId).populate('server', '_id')
+        }
+
+        if( !channel ) return res.status(404).send({ message: 'Channel not found'})
 
         // Create a new message object with the provided data
         const message = new Message({
