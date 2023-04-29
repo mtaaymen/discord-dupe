@@ -156,7 +156,7 @@ router.get('/:channelId/messages/:messageId', async (req, res) => {
 router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
         const { content, hasReply, toUser } = req.body
-        const { channelId } = req.params
+        let { channelId } = req.params
         const authorId = req.user._id
 
         let channel
@@ -167,6 +167,7 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
         }
 
         if( !channel ) return res.status(404).send({ message: 'Channel not found'})
+        channelId = channel._id.toString()
 
         // Create a new message object with the provided data
         const message = new Message({
