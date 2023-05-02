@@ -22,7 +22,7 @@ const authJwt = async (req, res, next) => {
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: [{
                         path: 'author',
-                        select: 'avatar username discriminator status'
+                        select: 'avatar username discriminator status createdAt'
                     }, {
                         path: 'hasReply',
                         select: 'content author',

@@ -189,7 +189,7 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
         const populatedMessage = await Message.findById(message._id)
             .populate([{
                 path: 'author',
-                select: 'avatar username discriminator status'
+                select: 'avatar username discriminator status createdAt'
             }, {
                 path: 'hasReply',
                 select: 'content author',

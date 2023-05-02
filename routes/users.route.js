@@ -41,7 +41,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: [{
                         path: 'author',
-                        select: 'avatar username discriminator status'
+                        select: 'avatar username discriminator status createdAt'
                     }, {
                         path: 'hasReply',
                         select: 'content author',
@@ -81,7 +81,7 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
             User.findOne({ username, discriminator }),
         ])
 
-        const userId = user._id.toString()
+        const userId = user?._id?.toString()
     
         if (!user || !sender) return res.status(404).send({ message: 'User not found'})
         if (userId === senderId.toString()) return res.status(404).send({ message: 'User not found'})

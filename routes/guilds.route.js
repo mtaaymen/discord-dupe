@@ -113,7 +113,7 @@ router.post( '/', authJwt, async (req, res) => {
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: [{
                         path: 'author',
-                        select: 'avatar username discriminator status'
+                        select: 'avatar username discriminator status createdAt'
                     }, {
                         path: 'hasReply',
                         select: 'content author',
@@ -179,7 +179,7 @@ router.get( '/:guild', authJwt, async (req, res) => {
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: {
                         path: 'author',
-                        select: 'avatar username discriminator status'
+                        select: 'avatar username discriminator status createdAt'
                     }
                 }
             })
