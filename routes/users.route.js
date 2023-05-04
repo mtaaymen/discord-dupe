@@ -32,7 +32,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                 populate: { path: 'guild', select: 'name' }
             })
             .populate({ path: 'owner', select: 'avatar username discriminator status customStatus' })
-            .populate({ path: 'members', select: 'avatar username discriminator status customStatus' })
+            .populate({ path: 'members', select: 'avatar username discriminator status customStatus createdAt' })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position permissionOverwrites messages',
