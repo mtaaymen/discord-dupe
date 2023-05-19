@@ -20,7 +20,11 @@ const serverSchema = new Schema({
     },
     icon: {
         type: String,
-        default: 'default-icon-url',
+        default: null,
+    },
+    everyone_role: {
+        type: Schema.Types.ObjectId,
+        ref: 'Role',
     },
     members: [{
         type: Schema.Types.ObjectId,
@@ -57,17 +61,6 @@ const serverSchema = new Schema({
     invites: [{
         type: Schema.Types.ObjectId,
         ref: 'Invite'
-    }],
-    permissions: [{
-        name: String,
-        allowed: Boolean,
-        allowedTo: [{
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        }, {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'Role'
-        }]
     }],
     createdAt: {
         type: Date,

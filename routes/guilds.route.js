@@ -19,9 +19,9 @@ const guildTypes = {
             { name: 'test', position: 2, type: 'text' },
         ],
         roles: [
-            { name: 'admin', permissions: [], color: '#ff0000' },
-            { name: 'moderator', permissions: [], color: '#00ff00' },
-            { name: 'member', permissions: [], color: '#0000ff' },
+            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
+            { name: 'moderator', color: '#00ff00', permissions: 70886355229761 },
+            { name: 'member', color: '#0000ff', permissions: 70886355229761 },
         ],
     },
     2: {
@@ -33,9 +33,9 @@ const guildTypes = {
             { name: 'valorant', position: 4, type: 'text' },
         ],
         roles: [
-            { name: 'owner', permissions: [], color: '#000000' },
-            { name: 'admin', permissions: [], color: '#ff0000' },
-            { name: 'member', permissions: [], color: '#0000ff' },
+            { name: 'owner', color: '#000000', permissions: 70886355229761 },
+            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
+            { name: 'member', color: '#0000ff', permissions: 70886355229761 }
         ],
     },
     // add more types as needed
@@ -51,6 +51,7 @@ router.post( '/', authJwt, async (req, res) => {
         if (!serverType || !guildTypes[serverType]) {
             serverType = Object.keys(guildTypes)[0] // select first type
         }
+
     
         // create new server
         const server = await Guild.create({
@@ -58,17 +59,26 @@ router.post( '/', authJwt, async (req, res) => {
             owner: req.user._id,
             members: [req.user._id]
         })
+
+        // create everyone role
+        const everyone_role = await Role.create({
+            name: "@everyone",
+            color: '#000000',
+            members: [req.user._id],
+            server: server._id,
+            permissions: 70886355229761
+        })
     
         // initialize channels and roles based on server type
         const { channels, roles } = guildTypes[serverType]
         const channelPromises = channels.map(({ name, position, type }) =>
-          Channel.create({ name, position, type, server: server._id })
+            Channel.create({ name, position, type, server: server._id })
         )
         const channelsDocs = await Promise.all(channelPromises)
         const channelIds = channelsDocs.map((channel) => channel._id)
     
         const rolePromises = roles.map(({ name, permissions, color }) =>
-          Role.create({ name, permissions, color, server: server._id })
+            Role.create({ name, color, permissions, server: server._id })
         )
         const rolesDocs = await Promise.all(rolePromises)
         const roleIds = rolesDocs.map((role) => role._id)
@@ -87,6 +97,7 @@ router.post( '/', authJwt, async (req, res) => {
         server.invites = [invite._id]
         server.channels = channelIds
         server.roles = roleIds
+        server.everyone_role = everyone_role._id
         await server.save()
 
         // populate channels and roles and send response

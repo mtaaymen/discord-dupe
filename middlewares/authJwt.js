@@ -12,11 +12,11 @@ const authJwt = async (req, res, next) => {
             .populate([
                 { path: 'sentFriendRequests', select: 'avatar username discriminator status' },
                 { path: 'pendingFriendRequests', select: 'avatar username discriminator status' },
-                { path: 'friends', select: 'avatar username discriminator status customStatus' }
+                { path: 'friends', select: 'avatar username discriminator status customStatus createdAt' }
             ])
             .populate({
                 path: 'channels',
-                select: 'messages isGroup participants',
+                select: 'owner name messages isGroup participants permissions',
                 populate: [{
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
@@ -32,14 +32,12 @@ const authJwt = async (req, res, next) => {
                         }
                     }]
                 }, {
-                    path: 'participants.user',
-                    select: 'avatar username discriminator status customStatus'
+                    path: 'participants',
+                    select: 'avatar username discriminator status customStatus createdAt'
                 }]
             })
-            .lean()
-            .exec()
-        
-        user.channels = user.channels.filter( channel => {
+
+        /*user.channels = user.channels.filter( channel => {
             const userParticipant = channel.participants.find( participant => {
                 return participant.user._id.toString() === decodedToken.userId
             })
@@ -49,14 +47,18 @@ const authJwt = async (req, res, next) => {
             }
             
             return true
-        })
+        })*/
+
+        if( !user.channels ) {
+            user.channels = []
+            await user.save()
+        }
         
         for ( const channel of user.channels ) {
             for( const participant of channel.participants ) {
-                if( participant.user.customStatus.status ) {
-                    participant.user.status = participant.user.customStatus.status
+                if( participant.customStatus.status ) {
+                    participant.status = participant.customStatus.status
                 }
-                delete participant.isVisible
             }
         }
 
@@ -71,6 +73,7 @@ const authJwt = async (req, res, next) => {
         req.user = user
         next()
     } catch (error) {
+        console.log( error )
         res.status(401).json({ message: 'Invalid token' })
     }
 }

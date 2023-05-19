@@ -2,19 +2,75 @@ const express = require('express')
 const router = express.Router()
 
 const { authJwt } = require('../middlewares')
-const { unsubscribeAllUsers } = require('../sockets/helpers')
+const { checkChannelPermissions } = require('../services')
+const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
 
 const db = require("../models")
 const Guild = db.guild
+const User = db.user
 const Channel = db.channel
 const Role = db.role
 const Invite = db.invite
 const Message = db.message
 
-// edit channel
-router.patch('/:channel', async (req, res) => {
+//get channel by id
+router.get('/:channelId', authJwt, async (req, res) => {
     try {
-        const channelId = req.params.channel
+        let { channelId } = req.params
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+
+        const user = await User.findById(req.user._id)
+
+        const channel = await Channel.findById(channelId).populate('server', '_id')
+        if( !channel ) return res.status(404).send({ message: 'Channel not found'})
+
+        if( channel.participants.includes( req.user._id.toString() ) && !user.channels.includes( channelId ) ) {
+            user.channels.addToSet(channelId)
+            await user.save()
+        }
+
+        const populatedChannel = await Channel.findById(channelId)
+            .populate([{
+                path: 'messages',
+                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                populate: [{
+                    path: 'author',
+                    select: 'avatar username discriminator status createdAt'
+                }, {
+                    path: 'hasReply',
+                    select: 'content author',
+                    populate: {
+                        path: 'author',
+                        select: 'username'
+                    }
+                }]
+            }, {
+                path: 'participants',
+                select: 'avatar username discriminator status customStatus createdAt'
+            }])
+        
+        for( const participant of populatedChannel.participants ) {
+            if( participant.customStatus.status ) {
+                participant.status = participant.customStatus.status
+            }
+        }
+
+        res.status(200).json( populatedChannel )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// edit channel
+router.patch('/:channelId', authJwt, async (req, res) => {
+    try {
+        const { channelId } = req.params
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+
+        const requiredPermissions = ['MANAGE_CHANNELS']
+        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to edit channels.' })
 
         // map properties from request body to channel model properties
         const fieldMap = {
@@ -35,17 +91,56 @@ router.patch('/:channel', async (req, res) => {
 
         // retrieve the updated channel object
         const updatedChannel = await Channel.findById(channelId)
-        .select('name server type topic parent position permissionOverwrites messages')
-        .populate({
-            path: 'messages',
-            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-            populate: {
-                path: 'author',
-                select: 'avatar username discriminator avatar status'
-            }
-        })
+            .select('owner name messages isGroup participants permissions')
+            .populate([{
+                path: 'messages',
+                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                populate: [{
+                    path: 'author',
+                    select: 'avatar username discriminator status createdAt'
+                }, {
+                    path: 'hasReply',
+                    select: 'content author',
+                    populate: {
+                        path: 'author',
+                        select: 'username'
+                    }
+                }]
+            }, {
+                path: 'participants',
+                select: 'avatar username discriminator status customStatus createdAt'
+            }])
 
-        req.io.to(`guild:${updatedChannel.server}`).emit('CHANNEL_UPDATE', updatedChannel)
+        if( updatedChannel.server ) {
+            req.io.to(`guild:${updatedChannel.server}`).emit('CHANNEL_UPDATE', updatedChannel)
+        } else {
+            req.io.to(`channel:${updatedChannel._id.toString()}`).emit('CHANNEL_UPDATE', updatedChannel)
+
+            if( updates.name ) {
+                const message = await Message.create({
+                    content: `${req.user.username} changed the channel name: ${updates.name}`,
+                    author: req.user._id,
+                    channel: channelId,
+                    type: 3
+                })
+                await updatedChannel.updateOne({ $push: { messages: message._id } })
+
+                const populatedMessage = await Message.findById(message._id)
+                    .populate([{
+                        path: 'author',
+                        select: 'avatar username discriminator status createdAt'
+                    }, {
+                        path: 'hasReply',
+                        select: 'content author',
+                        populate: {
+                            path: 'author',
+                            select: 'username'
+                        }
+                    }])
+    
+                req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
+            }
+        }
 
         res.status(200).json( updatedChannel )
     } catch (error) {
@@ -55,18 +150,47 @@ router.patch('/:channel', async (req, res) => {
 })
 
 // delete channel
-router.delete('/:channel', async (req, res) => {
+router.delete('/:channel', authJwt, async (req, res) => {
     try {
         const channelId = req.params.channel
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
 
-        // find the channel and its server
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
         const channel = await Channel.findById(channelId)
+
+        if( !channel.server ) {
+            if( channel.isGroup ) {
+                if( channel.participants.includes( userId ) ) {
+                    await User.findByIdAndUpdate( userId, { $pull: { channels: channelId } })
+                    await Channel.findByIdAndUpdate( channelId, { $pull: { participants: userId } })
+                } else return res.status(404).json({ message: "User not in channel" })
+
+                sendToAllUserIds(req.io, [userId], 'CHANNEL_DELETE', { channel: channelId })
+                return res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channelId })
+            }
+
+            if( user.channels.includes( channelId ) ) {
+                await User.findByIdAndUpdate( userId, { $pull: { channels: channelId } })
+
+                sendToAllUserIds(req.io, [userId], 'CHANNEL_DELETE', { channel: channelId })
+                unsubscribeAllUsers( req.io, 'channel', channelId )
+            } else return res.status(404).json({ message: "User not in channel" })
+
+            return res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channelId })
+        }
+
+        const requiredPermissions = ['MANAGE_CHANNELS']
+        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to delete channels.' })
+
+        
         const guildId = channel.server.toString()
         const server = await Guild.findById(guildId).populate('channels')
 
         // ensure the server has at least one channel
         if (server.channels.length === 1) {
-            return res.status(400).json({ message: 'Cannot delete last channel in server' });
+            return res.status(400).json({ message: 'Cannot delete last channel in server' })
         }
 
         const inviteExists = await Invite.exists( { channel: channelId, guild: guildId } )
@@ -157,30 +281,134 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
         const { content, hasReply, toUser } = req.body
         let { channelId } = req.params
-        const authorId = req.user._id
+        const authorId = req.user._id.toString()
+        const user = await User.findById(authorId)
 
         let channel
         if( toUser ) {
-            channel = await Channel.findOne({ 'participants.user': { $all: [authorId, channelId] } })
+            channel = await Channel.findOne({ participants: { $all: [authorId, channelId], $size: 2 } })
+            if( !channel ) {
+                const receiver = await User.findById(channelId)
+                if( !receiver ) return res.status(404).send({ message: 'User not found'})
+
+                channel = await Channel.create({
+                    type: 'dm',
+                    position: 0,
+                    participants: [
+                        authorId,
+                        channelId 
+                    ],
+                    permissions: [{
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: authorId
+                    }, {
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: channelId
+                    }]
+                })
+
+                user.channels.addToSet(channel._id)
+                receiver.channels.addToSet(channel._id)
+
+                await user.save()
+                await receiver.save()
+
+                const populatedDMChannel = await Channel.findById(channel._id)
+                    .populate([{
+                        path: 'messages',
+                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                        populate: [{
+                            path: 'author',
+                            select: 'avatar username discriminator status createdAt'
+                        }, {
+                            path: 'hasReply',
+                            select: 'content author',
+                            populate: {
+                                path: 'author',
+                                select: 'username'
+                            }
+                        }]
+                    }, {
+                        path: 'participants',
+                        select: 'avatar username discriminator status customStatus createdAt'
+                    }])
+
+                for( const participant of populatedDMChannel.participants ) {
+                    if( participant.customStatus.status ) {
+                        participant.status = participant.customStatus.status
+                    }
+                }
+
+                const usersRecievedChannel = [authorId, channelId]
+                sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+            }
         } else {
-            channel = await Channel.findById(channelId).populate('server', '_id')
+            channel = await Channel.findById(channelId)
+                .populate('server', '_id')
         }
 
         if( !channel ) return res.status(404).send({ message: 'Channel not found'})
         channelId = channel._id.toString()
 
+        const requiredPermissions = ['SEND_MESSAGES']
+        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to send messages.' })
+
+        if( !channel.server && channel.participants ) {
+            const usersRecievedChannel = []
+
+            for( const participant of channel.participants ) {
+                const participantDoc = await User.findById(participant)
+
+                if( !participantDoc.channels.includes(channel._id.toString()) ) {
+                    participantDoc.channels.addToSet(channel._id)
+                    await participantDoc.save()
+                    usersRecievedChannel.push( participant.toString() )
+                }
+            }
+
+            const populatedDMChannel = await Channel.findById(channel._id)
+                .populate([{
+                    path: 'messages',
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    populate: [{
+                        path: 'author',
+                        select: 'avatar username discriminator status createdAt'
+                    }, {
+                        path: 'hasReply',
+                        select: 'content author',
+                        populate: {
+                            path: 'author',
+                            select: 'username'
+                        }
+                    }]
+                }, {
+                    path: 'participants',
+                    select: 'avatar username discriminator status customStatus createdAt'
+                }])
+
+            for( const participant of populatedDMChannel.participants ) {
+                if( participant.customStatus.status ) {
+                    participant.status = participant.customStatus.status
+                }
+            }
+
+            sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+        }
+
         // Create a new message object with the provided data
-        const message = new Message({
+        const message = await Message.create({
             content,
             author: authorId,
             channel: channelId,
             hasReply,
-            ...(channel?.server && { server: channel.server._id.toString() })
+            ...(channel?.server && { server: channel.server._id.toString() }),
+            type: 0
         })
-
-    
-        // Save the message to the database
-        await message.save()
 
         // Add the message to the channel's messages array
         await channel.updateOne({ $push: { messages: message._id } })
@@ -210,12 +438,26 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
 })
 
 //delete messsage
-router.delete('/:channelId/messages/:messageId', async (req, res) => {
+router.delete('/:channelId/messages/:messageId', authJwt, async (req, res) => {
     try {
         const { channelId, messageId } = req.params
 
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+        if (!db.mongoose.Types.ObjectId.isValid(messageId)) return res.status(400).json({ message: 'Invalid message id' })
+        
+
         // find the channel
-        const channel = await Channel.findById(channelId)
+        const channel = await Channel.findById(channelId).populate('permissions')
+        if (!channel) return res.status(404).json({ message: 'Channel not found.' })
+
+        const message = await Message.findById(messageId)
+        if (!message) return res.status(404).json({ message: 'Message not found.' })
+          
+        if( req.user._id.toString() !== message.author.toString() ) {
+            const requiredPermissions = ['MANAGE_MESSAGES']
+            const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+            if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to delete this message.' })
+        }
 
         // delete the message
         await Message.findByIdAndDelete(messageId)
@@ -239,7 +481,7 @@ router.delete('/:channelId/messages/:messageId', async (req, res) => {
 })
 
 // edit message
-router.patch('/:channelId/messages/:messageId', async (req, res) => {
+router.patch('/:channelId/messages/:messageId', authJwt, async (req, res) => {
     try {
         const { content } = req.body
         const { channelId, messageId } = req.params
@@ -248,8 +490,24 @@ router.patch('/:channelId/messages/:messageId', async (req, res) => {
             content
         }
 
+        const message = await Message.findById(messageId)
+        if (!message) return res.status(404).json({ message: 'Message not found.' })
+
+        if( req.user._id.toString() !== message.author.toString() ) return res.status(403).json({ message: "You don't have permission to perform this action." })
+
         // update the channel
-        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate('author', 'username')
+        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate([{
+            path: 'author',
+            select: 'avatar username discriminator status createdAt'
+        }, {
+            path: 'hasReply',
+            select: 'content author',
+            populate: {
+                path: 'author',
+                select: 'username'
+            }
+        }])
+
         if (!updatedMessage) return res.status(404).send('Message not found')
 
         req.io.to(`channel:${channelId}`).emit('MESSAGE_UPDATE', updatedMessage)

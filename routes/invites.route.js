@@ -6,6 +6,7 @@ const { authJwt } = require('../middlewares')
 const db = require("../models")
 const User = db.user
 const Guild = db.guild
+const Role = db.role
 const Invite = db.invite
 
 router.get('/:code', authJwt, async ( req, res ) => {
@@ -49,6 +50,7 @@ router.post('/:code', authJwt, async (req, res) => {
         const invite = await Invite.findOne({ code })
             .populate('guild')
             .populate('inviter')
+
         if (!invite) return res.status(404).json({ message: 'Invite not found' })
         
         // Check if user is already a member of the guild
@@ -57,6 +59,9 @@ router.post('/:code', authJwt, async (req, res) => {
     
         // Add user to members array of the guild
         await Guild.updateOne({ _id: invite.guild._id }, { $push: { members: req.user._id } })
+
+        // add user to everone role of the guild
+        await Role.updateOne({ _id: invite.guild.everyone_role }, { $push: { members: req.user._id } })
     
         // Increase invite uses
         invite.uses += 1

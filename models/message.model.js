@@ -5,6 +5,7 @@ const Schema = mongoose.Schema;
 const Message = mongoose.model(
     "Message",
     new Schema({
+        type: Number,
         content: {
             type: String,
             required: true,

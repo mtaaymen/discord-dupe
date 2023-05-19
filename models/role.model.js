@@ -22,6 +22,7 @@ const Role = mongoose.model(
                 ref: 'User'
             }
         ],
+        permissions: Number
   })
 )
 

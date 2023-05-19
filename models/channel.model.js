@@ -44,23 +44,53 @@ const Channel = mongoose.model(
             ref: 'Message',
         }],
         participants: [{
-            user: { type: Schema.Types.ObjectId, ref: 'User' },
-            isVisible: { type: Boolean, default: true }
+            type: Schema.Types.ObjectId,
+            ref: 'User',
         }],
+        owner: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+        },
         isGroup: {
             type: Boolean,
             default: false
         },
         permissions: [{
-            name: String,
-            allowed: Boolean,
-            allowedTo: [{
-                type: mongoose.Schema.Types.ObjectId,
-                ref: 'User'
-            }, {
-                type: mongoose.Schema.Types.ObjectId,
+            allow: {
+                type: Number,
+                default: 0
+            },
+            deny: {
+                type: Number,
+                default: 0
+            },
+            _type: {
+                type: Number,
+                default: 1
+            },
+            id: {
+                type: Schema.Types.ObjectId,
                 ref: 'Role'
-            }]
+            },
+            position: Number
+        }, {
+            allow: {
+                type: Number,
+                default: 0
+            },
+            deny: {
+                type: Number,
+                default: 0
+            },
+            _type: {
+                type: Number,
+                default: 0
+            },
+            id: {
+                type: Schema.Types.ObjectId,
+                ref: 'User'
+            },
+            position: Number
         }],
         createdAt: {
             type: Date,

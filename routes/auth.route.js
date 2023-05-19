@@ -113,7 +113,7 @@ router.post('/signin', async (req, res) => {
 
 router.get("/permissions", authJwt, async (req, res) => {
     try {
-        const userId = req.user._id
+        /*const userId = req.user._id
     
         // Find all the servers where the user is a member
         const servers = await Guild.find({ members: userId })
@@ -134,25 +134,27 @@ router.get("/permissions", authJwt, async (req, res) => {
     
             // Loop through each permission and check if it's allowed for the user
             serverPermissions.forEach((permission) => {
-                if (permission.allowedTo.some((allowed) => allowed.equals(userId))) {
+                if (permission.allowedUsers.some((allowed) => allowed.equals(userId))) {
                     allowedPermissions.push(permission.name)
                 }
 
                 server.roles.forEach((role) => {
                     const roleId = role._id
-                    if (permission.allowedTo.some((allowed) => allowed.equals(roleId))) {
+                    if (permission.allowedRoles.some((allowed) => allowed.equals(roleId))) {
                         allowedPermissions.push(permission.name)
                     }
                 })
             })
+*/
 
-            // Loop through each permission and check if it's allowed for the user's roles
+            /*// Loop through each permission and check if it's allowed for the user's roles
             serverPermissions.forEach((permission) => {
-                if (permission.allowedTo.some((allowed) => allowed.equals(userId))) {
+                if (permission.allowedUsers.some((allowed) => allowed.equals(userId))) {
                     allowedPermissions.push(permission.name)
                 }
-            })
+            })*/
     
+            /*
             // Loop through each channel in the server and retrieve the allowed permissions
             const channelPermissions = await Promise.all(server.channels.map(async (channel) => {
                 const channelId = channel._id
@@ -161,13 +163,13 @@ router.get("/permissions", authJwt, async (req, res) => {
     
                 // Loop through each permission and check if it's allowed for the user
                 channelPermissions.forEach((permission) => {
-                    if (permission.allowedTo.some((allowed) => allowed.equals(userId))) {
+                    if (permission.users.some( user => user.user.equals(userId) && user.allowed === 1 )) {
                         allowedChannelPermissions.push(permission.name)
                     }
 
                     server.roles.forEach((role) => {
                         const roleId = role._id
-                        if (permission.allowedTo.some((allowed) => allowed.equals(roleId))) {
+                        if (permission.roles.some( role => role.role.equals(roleId) && role.allowed === 1 )) {
                             allowedChannelPermissions.push(permission.name)
                         }
                     })
@@ -177,9 +179,10 @@ router.get("/permissions", authJwt, async (req, res) => {
             }))
     
             return { guildId, allowedPermissions: Array.from( new Set(allowedPermissions) ), channels: channelPermissions }
-        }))
+        }))*/
     
-        res.json(serverPermissions)
+        //res.json(serverPermissions)
+        res.json([])
     } catch (err) {
         console.error(err)
         res.status(500).json({ message: 'Server error' })

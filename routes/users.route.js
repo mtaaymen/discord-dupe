@@ -8,11 +8,49 @@ const db = require("../models")
 const Channel = db.channel
 const User = db.user
 const Guild = db.guild
-const DMChannel = db.dmChannel
 
 // get user info
 router.get( '/@me', authJwt, (req, res) => {
     res.status(200).send(req.user)
+} )
+
+// get user profile
+router.get( '/:profileId/profile', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const { profileId } = req.params
+        const { with_mutual_guilds, with_mutual_friends_count } = req.query
+        if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
+
+        const profile = await User.findById(profileId).select('avatar username discriminator createdAt')
+        if(!profile) return res.status(404).json({ message: 'Profile not found' })
+
+        const result = {
+            user: profile,
+        }
+
+        if( with_mutual_guilds ) {
+            mutual_guilds = await Guild.find( {
+                members: { $all: [userId, profileId] }
+            } ).select('_id')
+
+            result.mutual_guilds = mutual_guilds
+        }
+        if( with_mutual_friends_count ) {
+            const mutual_friends = await User.find({
+                friends: { $all: [userId, profileId] }
+            }).select('_id')
+
+            result.mutual_friends = mutual_friends
+            result.mutual_friends_count = mutual_friends.length
+        }
+
+        res.status(200).json(result)
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
 } )
 
 // get user guilds
@@ -35,7 +73,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
             .populate({ path: 'members', select: 'avatar username discriminator status customStatus createdAt' })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites messages',
+                select: 'name type topic parent position messages',
                 populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
@@ -68,6 +106,190 @@ router.get( '/@me/channels', (req, res) => {
             res.status(200).send(guild)
         } )
         .catch( err => res.status(500).send( { message: err } ) )
+} )
+
+// create user channel
+router.post( '/@me/channels', authJwt, async (req, res) => {
+    try {
+        const { participants } = req.body
+        if( !Array.isArray(participants) ) return res.status(404).send({ message: 'Participants list not found'})
+
+        if( participants.length ) {
+            const participantsValid = participants.some( participantId => db.mongoose.Types.ObjectId.isValid(participantId) )
+            if( !participantsValid ) return res.status(404).send({ message: 'Participant not valid id'})
+        }
+
+        if( participants.length > 10 ) return res.status(403).send({ message: 'Groups can only go up to 10 participants.'})
+
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
+
+        if( participants.length === 1 ) {
+            let channelId
+            const receiverId = participants[0]
+            const receiver = await User.findById(receiverId)
+            if( !receiver ) return res.status(404).send({ message: 'User not found'})
+
+            const dmChannel = await Channel.exists({
+                participants: {
+                    $all: [userId, receiverId], $size: 2
+                },
+                isGroup: false
+            })
+    
+            if (!dmChannel) {
+                const newDMChannel = await Channel.create({
+                    type: 'dm',
+                    position: 0,
+                    participants: [
+                        receiverId,
+                        userId 
+                    ],
+                    permissions: [{
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: receiverId
+                    },
+                    {
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: userId
+                    }]
+                })
+
+                channelId = newDMChannel._id.toString()
+    
+                receiver.channels.addToSet(newDMChannel._id)
+                user.channels.addToSet(newDMChannel._id)
+        
+                await user.save()
+                await receiver.save()
+    
+                const populatedDMChannel = await Channel.findById(newDMChannel._id)
+                    .populate([{
+                        path: 'messages',
+                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                        populate: {
+                            path: 'author',
+                            select: 'avatar username discriminator status'
+                        }
+                    }, {
+                        path: 'participants',
+                        select: 'avatar username discriminator status customStatus createdAt'
+                    }])
+    
+                for( const participant of populatedDMChannel.participants ) {
+                    if( participant.customStatus.status ) {
+                        participant.status = participant.customStatus.status
+                    }
+                }
+
+                const usersRecievedChannel = [userId, receiverId]
+    
+                sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+            } else {
+                channelId = dmChannel._id.toString()
+                
+                const usersRecievedChannel = []
+                if( !user.channels.includes(dmChannel._id.toString()) ) {
+                    user.channels.addToSet(dmChannel._id)
+                    await user.save()
+                    usersRecievedChannel.push( userId )
+                }
+    
+                if( usersRecievedChannel.length ) {
+                    const populatedDMChannel = await Channel.findById(dmChannel._id)
+                        .populate([{
+                            path: 'messages',
+                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                            populate: {
+                                path: 'author',
+                                select: 'avatar username discriminator status'
+                            }
+                        }, {
+                            path: 'participants',
+                            select: 'avatar username discriminator status customStatus createdAt'
+                        }])
+        
+                    for( const participant of populatedDMChannel.participants ) {
+                        if( participant.customStatus.status ) {
+                            participant.status = participant.customStatus.status
+                        }
+                    }
+        
+                    sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+                }
+            }
+            return res.status(200).json({ message: 'Dm channel created successfully', channel: channelId })
+        }
+
+        const channelParticipants = [...participants, userId]
+        const permissions = participants.map( participant => {
+            return {
+                _type: 1,
+                allow: 70508330735680,
+                deny: 0,
+                id: participant
+            }
+        } )
+
+        const newGroupDMChannel = await Channel.create({
+            type: 'dm',
+            position: 0,
+            participants: channelParticipants,
+            permissions,
+            owner: userId,
+            isGroup: true
+        })
+
+        let newChannelName = `${user.username}'s Group`
+
+        if( participants.length ) {
+            const participantNames = []
+            const participantPromises = participants.map(async participant => {
+                const participantDoc = await User.findById(participant)
+                participantNames.push( participantDoc.username )
+                participantDoc.channels.addToSet(newGroupDMChannel._id)
+                return participantDoc.save()
+            })
+
+            await Promise.all(participantPromises)
+            newChannelName = participantNames.join(', ').slice(0, 100)
+        }
+
+        newGroupDMChannel.name = newChannelName
+        await newGroupDMChannel.save()
+          
+        user.channels.addToSet(newGroupDMChannel._id)
+        await user.save()
+
+        const populatedGroupDMChannel = await Channel.findById(newGroupDMChannel._id)
+            .populate([{
+                path: 'messages',
+                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                populate: {
+                    path: 'author',
+                    select: 'avatar username discriminator status'
+                }
+            }, {
+                path: 'participants',
+                select: 'avatar username discriminator status customStatus createdAt'
+            }])
+
+        for( const participant of populatedGroupDMChannel.participants ) {
+            if( participant.customStatus.status ) {
+                participant.status = participant.customStatus.status
+            }
+        }
+
+        sendToAllUserIds(req.io, channelParticipants, 'CHANNEL_CREATE', populatedGroupDMChannel)
+        res.status(200).json({ message: 'Group DM channel created successfully', channel: newGroupDMChannel._id.toString() })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
 } )
 
 // add friend
@@ -119,20 +341,30 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
             sendToAllUserIds(req.io, addFriendUserIds, 'FRIEND_ACTION', addFriendData)
 
             const dmChannel = await Channel.exists({
-                'participants.user': { $all: [userId, senderId] }
+                participants: { $all: [userId, senderId] }
             })
 
             if (!dmChannel) {
-                const newDMChannel = new Channel({
+                const newDMChannel = await Channel.create({
                     type: 'dm',
                     position: 0,
                     participants: [
-                        { user: userId },
-                        { user: senderId }
+                        userId,
+                        senderId
                     ],
-                    messages: []
+                    permissions: [{
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: userId
+                    },
+                    {
+                        _type: 1,
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: senderId
+                    }]
                 })
-                await newDMChannel.save()
     
                 user.channels.addToSet(newDMChannel._id)
                 sender.channels.addToSet(newDMChannel._id)
@@ -142,13 +374,13 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
     
                 const populatedDMChannel = await Channel.findById(newDMChannel._id)
                     .populate({
-                        path: 'participants.user',
-                        select: 'avatar username discriminator status customStatus'
+                        path: 'participants',
+                        select: 'avatar username discriminator status customStatus createdAt'
                     })
     
                 for( const participant of populatedDMChannel.participants ) {
-                    if( participant.user.customStatus.status ) {
-                        participant.user.status = participant.user.customStatus.status
+                    if( participant.customStatus.status ) {
+                        participant.status = participant.customStatus.status
                     }
                 }
     
@@ -241,8 +473,6 @@ router.delete('/@me/relationships/:friendId', authJwt, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 })
-  
-
 
 // accept friend request
 router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
@@ -291,23 +521,33 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
         sendToAllUserIds(req.io, addFriendUserIds, 'FRIEND_ACTION', addFriendData)
 
         const dmChannel = await Channel.exists({
-            'participants.user': {
+            participants: {
                 $all: [receiverId, senderId]
             },
             isGroup: false
         })
 
         if (!dmChannel) {
-            const newDMChannel = new Channel({
+            const newDMChannel = await Channel.create({
                 type: 'dm',
                 position: 0,
                 participants: [
-                    { user: receiverId },
-                    { user: senderId }
+                    receiverId,
+                    senderId 
                 ],
-                messages: []
+                permissions: [{
+                    _type: 1,
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: receiverId
+                },
+                {
+                    _type: 1,
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: senderId
+                }]
             })
-            await newDMChannel.save()
 
             receiver.channels.addToSet(newDMChannel._id)
             sender.channels.addToSet(newDMChannel._id)
@@ -315,31 +555,40 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             await sender.save()
             await receiver.save()
 
-            const populatedDMChannel = await Channel.findOne({
-                'participants.user': {
-                    $all: [receiverId, senderId]
-                },
-                isGroup: false
-            }).populate([{
-                path: 'messages',
-                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                populate: {
-                    path: 'author',
-                    select: 'avatar username discriminator status'
-                }
-            }, {
-                path: 'participants.user',
-                select: 'avatar username discriminator status customStatus'
-            }])
+            const populatedDMChannel = await Channel.findById(newDMChannel._id)
+                .populate([{
+                    path: 'messages',
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                    populate: {
+                        path: 'author',
+                        select: 'avatar username discriminator status'
+                    }
+                }, {
+                    path: 'participants',
+                    select: 'avatar username discriminator status customStatus createdAt'
+                }])
 
             for( const participant of populatedDMChannel.participants ) {
-                if( participant.user.customStatus.status ) {
-                    participant.user.status = participant.user.customStatus.status
+                if( participant.customStatus.status ) {
+                    participant.status = participant.customStatus.status
                 }
             }
 
             sendToAllUserIds(req.io, addFriendUserIds, 'CHANNEL_CREATE', populatedDMChannel)
         } else {
+            const usersRecievedChannel = []
+            if( !sender.channels.includes(dmChannel._id.toString()) ) {
+                sender.channels.addToSet(dmChannel._id)
+                await sender.save()
+                usersRecievedChannel.push( sender._id.toString() )
+            }
+
+            if( !receiver.channels.includes(dmChannel._id.toString()) ) {
+                receiver.channels.addToSet(dmChannel._id)
+                await receiver.save()
+                usersRecievedChannel.push( receiver._id.toString() )
+            }
+
             const populatedDMChannel = await Channel.findById(dmChannel._id)
                 .populate([{
                     path: 'messages',
@@ -349,26 +598,17 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
                         select: 'avatar username discriminator status'
                     }
                 }, {
-                    path: 'participants.user',
-                    select: 'avatar username discriminator status customStatus'
+                    path: 'participants',
+                    select: 'avatar username discriminator status customStatus createdAt'
                 }])
 
-            const usersSetToVisible = []
             for( const participant of populatedDMChannel.participants ) {
-                if( !participant.isVisible ) {
-                    participant.isVisible = true
-                    usersSetToVisible.push(participant.user._id.toString())
-                }
-            }
-            await populatedDMChannel.save()
-
-            for( const participant of populatedDMChannel.participants ) {
-                if( participant.user.customStatus.status ) {
-                    participant.user.status = participant.user.customStatus.status
+                if( participant.customStatus.status ) {
+                    participant.status = participant.customStatus.status
                 }
             }
 
-            sendToAllUserIds(req.io, usersSetToVisible, 'CHANNEL_CREATE', populatedDMChannel)
+            sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
         }
 
         return res.status(200).json({ message: 'Friend request accepted successfully' })
@@ -377,7 +617,6 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 })
-
 
 // decline friend request
 router.delete('/@me/relationships/:senderId/decline', authJwt, async (req, res) => {
