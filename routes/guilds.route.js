@@ -212,7 +212,7 @@ router.get( '/:guild', authJwt, async (req, res) => {
     }
 } )
 
-router.delete('/:guild', async (req, res) => {
+router.delete('/:guild', authJwt, async (req, res) => {
     try {
         const guildId = req.params.guild
         if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
@@ -246,7 +246,7 @@ router.delete('/:guild', async (req, res) => {
 })
 
 // get guild channels
-router.get( '/:guild/channels', (req, res) => {
+router.get( '/:guild/channels', authJwt, (req, res) => {
     Guild.find({})
         .then( guild => {
             res.status(200).send(guild)
