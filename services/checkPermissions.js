@@ -1,4 +1,5 @@
 const db = require('../models')
+const Guild = db.guild
 const Channel = db.channel
 const Role = db.role
 
@@ -231,4 +232,32 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
     }
 }
 
-module.exports = checkChannelPermissions
+async function checkServerPermissions(user, serverId, requiredPermissions) {
+    const server = await Guild.findById(serverId).select('owner')
+    if( !server ) return false
+
+
+    const userIsServerOwner = server.owner.toString() === user._id.toString()
+    if( userIsServerOwner ) return true
+
+    console.log( '\n-----\n' )
+
+    const userRoles = await Role.find({ members: user._id, server: serverId })
+
+    const userHasServerPermissionByRole = checkRolesPermissions(userRoles, requiredPermissions)
+    if (userHasServerPermissionByRole === true) {
+        console.log('(ROLE-2) User has all required permissions')
+        return true
+    } else if (Array.isArray(userHasServerPermissionByRole)) {
+        console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        return false
+    } else {
+        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        return false
+    }
+}
+
+module.exports = {
+    checkChannelPermissions,
+    checkServerPermissions
+}

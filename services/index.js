@@ -1,5 +1,6 @@
-const checkChannelPermissions = require('./checkChannelPermissions')
+const { checkChannelPermissions, checkServerPermissions } = require('./checkPermissions')
 
 module.exports = {
     checkChannelPermissions,
+    checkServerPermissions
 }

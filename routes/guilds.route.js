@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 
 const { authJwt } = require('../middlewares')
+const { checkServerPermissions } = require('../services')
 const { unsubscribeAllUsers } = require('../sockets/helpers')
 
 const db = require("../models")
@@ -148,6 +149,11 @@ router.post( '/', authJwt, async (req, res) => {
 router.post( '/:guild/channels', authJwt, async (req, res) => {
     try {
         const guildId = req.params.guild
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const requiredPermissions = ['MANAGE_CHANNELS']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
 
         // create a new channel
         const channel = new Channel({
@@ -160,7 +166,7 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
         await channel.save()
 
         // add the new channel to the server's channels array
-        const server = await Guild.findByIdAndUpdate(guildId, {
+        await Guild.findByIdAndUpdate(guildId, {
             $push: { channels: channel._id }
         })
 
@@ -177,6 +183,7 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
 router.get( '/:guild', authJwt, async (req, res) => {
     try {
         const guildId = req.params.guild
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
 
         // get server by id and populate owner, memebers, channels and messages and their author
         const guild = await Guild.findOne( { _id: guildId, members: req.user._id } )
@@ -208,6 +215,11 @@ router.get( '/:guild', authJwt, async (req, res) => {
 router.delete('/:guild', async (req, res) => {
     try {
         const guildId = req.params.guild
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const requiredPermissions = ['MANAGE_GUILD']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to delete server.' })
     
         // delete channels and roles related to the server
         await Channel.deleteMany({ server: guildId })
