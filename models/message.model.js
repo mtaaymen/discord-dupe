@@ -73,6 +73,14 @@ const Message = mongoose.model(
                 ref: 'User',
             }],
         }],
+        mentions: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+        }],
+        mention_everyone: {
+            type: Boolean,
+            default: false
+        },
         pinned: {
             type: Boolean,
             default: false,

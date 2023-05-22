@@ -225,7 +225,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
             return res.status(200).json({ message: 'Dm channel created successfully', channel: channelId })
         }
 
-        const channelParticipants = [...participants, userId]
+        const channelParticipants = [userId, ...participants]
         const permissions = participants.map( participant => {
             return {
                 _type: 1,
@@ -248,7 +248,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
 
         if( participants.length ) {
             const participantNames = []
-            const participantPromises = participants.map(async participant => {
+            const participantPromises = channelParticipants.map(async participant => {
                 const participantDoc = await User.findById(participant)
                 participantNames.push( participantDoc.username )
                 participantDoc.channels.addToSet(newGroupDMChannel._id)
