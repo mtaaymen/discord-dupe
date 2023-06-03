@@ -33,12 +33,13 @@ function joinRooms(socket, type, roomIds) {
     const newRooms = []
     const roomsSet = socket[`_${type}`] || new Set()
     roomIds.forEach(roomId => {
-        const roomName = roomId.includes(":") ? roomId : `${type}:${roomId}`;
+        const roomName = roomId.includes(":") ? roomId : `${type}:${roomId}`
         if (!roomsSet.has(roomName)) {
             newRooms.push(roomName)
             roomsSet.add(roomName)
         }
     })
+
     if (newRooms.length > 0) {
         socket[`_${type}`] = roomsSet
         socket.join(newRooms)
@@ -49,7 +50,7 @@ function leaveRooms(socket, type, roomIds) {
     const roomsToLeave = []
     const roomsSet = socket[`_${type}`] || new Set()
     roomIds.forEach(roomId => {
-        const roomName = roomId.includes(":") ? roomId : `${type}:${roomId}`;
+        const roomName = roomId.includes(":") ? roomId : `${type}:${roomId}`
         if (roomsSet.has(roomName)) {
             roomsToLeave.push(roomName)
             roomsSet.delete(roomName)

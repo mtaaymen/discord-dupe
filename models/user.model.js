@@ -54,17 +54,35 @@ const User = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'Channel',
         }],
-        servers: [{
+        guilds: [{
             type: Schema.Types.ObjectId,
-            ref: 'Server',
+            ref: 'Guild',
         }],
         mutedServers: [{
             type: Schema.Types.ObjectId,
-            ref: 'Server',
+            ref: 'Guild',
         }],
         channels: [{
             type: Schema.Types.ObjectId,
             ref: 'Channel' 
+        }],
+        reputations: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User' 
+        }],
+        reputationsCount: Number,
+        givenReputations: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User' 
+        }],
+        vouches: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User' 
+        }],
+        vouchesCount: Number,
+        givenVouches: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User' 
         }],
         discriminator: {
             type: String,

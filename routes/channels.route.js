@@ -33,27 +33,11 @@ router.get('/:channelId', authJwt, async (req, res) => {
             .populate([{
                 path: 'messages',
                 select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                populate: [{
-                    path: 'author',
-                    select: 'avatar username discriminator status createdAt'
-                }, {
+                populate: {
                     path: 'hasReply',
-                    select: 'content author',
-                    populate: {
-                        path: 'author',
-                        select: 'username'
-                    }
-                }]
-            }, {
-                path: 'participants',
-                select: 'avatar username discriminator status customStatus createdAt'
+                    select: 'content author'
+                }
             }])
-        
-        for( const participant of populatedChannel.participants ) {
-            if( participant.customStatus.status ) {
-                participant.status = participant.customStatus.status
-            }
-        }
 
         res.status(200).json( populatedChannel )
     } catch (error) {
@@ -95,20 +79,10 @@ router.patch('/:channelId', authJwt, async (req, res) => {
             .populate([{
                 path: 'messages',
                 select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                populate: [{
-                    path: 'author',
-                    select: 'avatar username discriminator status createdAt'
-                }, {
+                populate: {
                     path: 'hasReply',
-                    select: 'content author',
-                    populate: {
-                        path: 'author',
-                        select: 'username'
-                    }
-                }]
-            }, {
-                path: 'participants',
-                select: 'avatar username discriminator status customStatus createdAt'
+                    select: 'content author'
+                }
             }])
 
         if( updatedChannel.server ) {
@@ -126,17 +100,10 @@ router.patch('/:channelId', authJwt, async (req, res) => {
                 await updatedChannel.updateOne({ $push: { messages: message._id } })
 
                 const populatedMessage = await Message.findById(message._id)
-                    .populate([{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
+                    .populate({
                         path: 'hasReply',
-                        select: 'content author',
-                        populate: {
-                            path: 'author',
-                            select: 'username'
-                        }
-                    }])
+                        select: 'content author'
+                    })
     
                 req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
             }
@@ -188,27 +155,11 @@ router.put('/:channelId/participants/:participantId', authJwt, async (req, res) 
                 .populate([{
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: [{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
+                    populate: {
                         path: 'hasReply',
-                        select: 'content author',
-                        populate: {
-                            path: 'author',
-                            select: 'username'
-                        }
-                    }]
-                }, {
-                    path: 'participants',
-                    select: 'avatar username discriminator status customStatus createdAt'
+                        select: 'content author'
+                    }
                 }])
-            
-            for( const participant of populatedChannel.participants ) {
-                if( participant.customStatus.status ) {
-                    participant.status = participant.customStatus.status
-                }
-            }
 
             res.status(200).json( populatedChannel )
             req.io.to(`channel:${channelId}`).emit('CHANNEL_UPDATE', populatedChannel)
@@ -225,17 +176,10 @@ router.put('/:channelId/participants/:participantId', authJwt, async (req, res) 
             await channel.updateOne({ $push: { messages: message._id } })
 
             const populatedMessage = await Message.findById(message._id)
-                .populate([{
-                    path: 'author',
-                    select: 'avatar username discriminator status createdAt'
-                }, {
+                .populate({
                     path: 'hasReply',
-                    select: 'content author',
-                    populate: {
-                        path: 'author',
-                        select: 'username'
-                    }
-                }])
+                    select: 'content author'
+                })
 
             req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
         }
@@ -285,28 +229,12 @@ router.delete('/:channel', authJwt, async (req, res) => {
                     .populate([{
                         path: 'messages',
                         select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                        populate: [{
-                            path: 'author',
-                            select: 'avatar username discriminator status createdAt'
-                        }, {
+                        populate: {
                             path: 'hasReply',
-                            select: 'content author',
-                            populate: {
-                                path: 'author',
-                                select: 'username'
-                            }
-                        }]
-                    }, {
-                        path: 'participants',
-                        select: 'avatar username discriminator status customStatus createdAt'
+                            select: 'content author'
+                        }
                     }])
             
-                for( const participant of populatedChannel.participants ) {
-                    if( participant.customStatus.status ) {
-                        participant.status = participant.customStatus.status
-                    }
-                }
-
                 req.io.to(`channel:${channelId}`).emit('CHANNEL_UPDATE', populatedChannel)
 
                 sendToAllUserIds(req.io, [userId], 'CHANNEL_DELETE', { channel: channelId })
@@ -320,17 +248,10 @@ router.delete('/:channel', authJwt, async (req, res) => {
                 await channel.updateOne({ $push: { messages: message._id } })
     
                 const populatedMessage = await Message.findById(message._id)
-                    .populate([{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
+                    .populate({
                         path: 'hasReply',
-                        select: 'content author',
-                        populate: {
-                            path: 'author',
-                            select: 'username'
-                        }
-                    }])
+                        select: 'content author'
+                    })
     
                 req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
 
@@ -341,7 +262,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
                 await User.findByIdAndUpdate( userId, { $pull: { channels: channelId } })
 
                 sendToAllUserIds(req.io, [userId], 'CHANNEL_DELETE', { channel: channelId })
-                unsubscribeAllUsers( req.io, 'channel', channelId )
+                //unsubscribeAllUsers( req.io, 'channel', channelId )
             } else return res.status(404).json({ message: "User not in channel" })
 
             return res.status(200).json({ message: `Channel ${channelId} deleted successfully`, channel: channelId })
@@ -488,27 +409,11 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
                     .populate([{
                         path: 'messages',
                         select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                        populate: [{
-                            path: 'author',
-                            select: 'avatar username discriminator status createdAt'
-                        }, {
+                        populate: {
                             path: 'hasReply',
-                            select: 'content author',
-                            populate: {
-                                path: 'author',
-                                select: 'username'
-                            }
-                        }]
-                    }, {
-                        path: 'participants',
-                        select: 'avatar username discriminator status customStatus createdAt'
+                            select: 'content author'
+                        }
                     }])
-
-                for( const participant of populatedDMChannel.participants ) {
-                    if( participant.customStatus.status ) {
-                        participant.status = participant.customStatus.status
-                    }
-                }
 
                 const usersRecievedChannel = [authorId, channelId]
                 sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
@@ -531,43 +436,30 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
             for( const participant of channel.participants ) {
                 const participantDoc = await User.findById(participant)
 
-                if( !participantDoc.channels.includes(channel._id.toString()) ) {
-                    participantDoc.channels.addToSet(channel._id)
+                if( !participantDoc.channels.includes(channelId) ) {
+                    participantDoc.channels.addToSet(channelId)
                     await participantDoc.save()
                     usersRecievedChannel.push( participant.toString() )
                 }
             }
 
-            const populatedDMChannel = await Channel.findById(channel._id)
-                .populate([{
-                    path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: [{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
-                        path: 'hasReply',
-                        select: 'content author',
+
+            if( usersRecievedChannel.length ) {
+                const populatedDMChannel = await Channel.findById(channelId)
+                    .populate({
+                        path: 'messages',
+                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                         populate: {
-                            path: 'author',
-                            select: 'username'
+                            path: 'hasReply',
+                            select: 'content author'
                         }
-                    }]
-                }, {
-                    path: 'participants',
-                    select: 'avatar username discriminator status customStatus createdAt'
-                }])
+                    })
 
-            for( const participant of populatedDMChannel.participants ) {
-                if( participant.customStatus.status ) {
-                    participant.status = participant.customStatus.status
-                }
+                sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
             }
-
-            sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
         }
 
-        // Create a new message object with the provided data
+ 
         const message = await Message.create({
             content,
             author: authorId,
@@ -576,26 +468,22 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
             ...(channel?.server && { server: channel.server._id.toString() }),
             type: 0
         })
+    
+
 
         // Add the message to the channel's messages array
         await channel.updateOne({ $push: { messages: message._id } })
+        
     
         // Populate the message object with the author's username and the channel's name
         const populatedMessage = await Message.findById(message._id)
-            .populate([{
-                path: 'author',
-                select: 'avatar username discriminator status createdAt'
-            }, {
+            .populate({
                 path: 'hasReply',
-                select: 'content author',
-                populate: {
-                    path: 'author',
-                    select: 'username'
-                }
-            }])
+                select: 'content author'
+            })
 
         req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
-    
+        
         // Send the populated message object in the response
         res.status(201).json(populatedMessage)
     } catch (error) {
@@ -663,17 +551,10 @@ router.patch('/:channelId/messages/:messageId', authJwt, async (req, res) => {
         if( req.user._id.toString() !== message.author.toString() ) return res.status(403).json({ message: "You don't have permission to perform this action." })
 
         // update the channel
-        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate([{
-            path: 'author',
-            select: 'avatar username discriminator status createdAt'
-        }, {
+        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate({
             path: 'hasReply',
-            select: 'content author',
-            populate: {
-                path: 'author',
-                select: 'username'
-            }
-        }])
+            select: 'content author'
+        })
 
         if (!updatedMessage) return res.status(404).send('Message not found')
 

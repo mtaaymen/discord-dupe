@@ -78,7 +78,7 @@ app.use( '/auth', authRoute )
 app.use( '/invites', invitesRoute )
 
 
-io.on('connection', socketEvents)
+io.on('connection', socketEvents(io))
 
 httpServer.listen( config.PORT, () => {
     console.log(`Listening on port ${config.PORT}`)

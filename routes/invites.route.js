@@ -47,6 +47,9 @@ router.post('/:code', authJwt, async (req, res) => {
     const code = req.params.code
   
     try {
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
+
         const invite = await Invite.findOne({ code })
             .populate('guild')
             .populate('inviter')
@@ -62,6 +65,10 @@ router.post('/:code', authJwt, async (req, res) => {
 
         // add user to everone role of the guild
         await Role.updateOne({ _id: invite.guild.everyone_role }, { $push: { members: req.user._id } })
+
+        // add server to user servers
+        user.guilds.addToSet(invite.guild._id)
+        await user.save()
     
         // Increase invite uses
         invite.uses += 1
@@ -73,8 +80,7 @@ router.post('/:code', authJwt, async (req, res) => {
             await invite.save()
         }
 
-        const member = await User.findOne({_id: req.user._id }).select('avatar username discriminator avatar status')
-        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member })
+        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: req.user._id })
 
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({
@@ -89,8 +95,6 @@ router.post('/:code', authJwt, async (req, res) => {
                 path: 'invites',
                 populate: { path: 'guild', select: 'name' }
             })
-            .populate({ path: 'owner', select: 'avatar username discriminator avatar status' })
-            .populate({ path: 'members', select: 'avatar username discriminator avatar status' })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position permissionOverwrites messages',

@@ -7,6 +7,7 @@ const { unsubscribeAllUsers } = require('../sockets/helpers')
 
 const db = require("../models")
 const Guild = db.guild
+const User = db.user
 const Channel = db.channel
 const Role = db.role
 const Invite = db.invite
@@ -46,6 +47,8 @@ const guildTypes = {
 router.post( '/', authJwt, async (req, res) => {
     try {
         const { name, type } = req.body
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
     
         // determine server type
         let serverType = type
@@ -57,15 +60,15 @@ router.post( '/', authJwt, async (req, res) => {
         // create new server
         const server = await Guild.create({
             name,
-            owner: req.user._id,
-            members: [req.user._id]
+            owner: userId,
+            members: [userId]
         })
 
         // create everyone role
         const everyone_role = await Role.create({
             name: "@everyone",
             color: '#000000',
-            members: [req.user._id],
+            members: [userId],
             server: server._id,
             permissions: 70886355229761
         })
@@ -92,7 +95,7 @@ router.post( '/', authJwt, async (req, res) => {
             if (!doc) inviteCode = tempInviteCode
         }
 
-        const invite = await Invite.create({ code: inviteCode, isPermanent: true, inviter: req.user._id, guild: server._id, channel: channelIds[0] })
+        const invite = await Invite.create({ code: inviteCode, isPermanent: true, inviter: userId, guild: server._id, channel: channelIds[0] })
     
         // save channel and role IDs in server document
         server.invites = [invite._id]
@@ -100,6 +103,9 @@ router.post( '/', authJwt, async (req, res) => {
         server.roles = roleIds
         server.everyone_role = everyone_role._id
         await server.save()
+
+        user.guilds.addToSet(server._id)
+        await user.save()
 
         // populate channels and roles and send response
         const populatedServer = await Guild.findById(server._id)
@@ -115,25 +121,16 @@ router.post( '/', authJwt, async (req, res) => {
                 path: 'invites',
                 populate: { path: 'guild', select: 'name' }
             })
-            .populate({ path: 'owner', select: 'avatar username discriminator status' })
-            .populate({ path: 'members', select: 'avatar username discriminator status createdAt' })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position permissionOverwrites messages',
                 populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: [{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
+                    populate:  {
                         path: 'hasReply',
-                        select: 'content author',
-                        populate: {
-                            path: 'author',
-                            select: 'username'
-                        }
-                    }]
+                        select: 'content author'
+                    }
                 }
             })
             .exec()
@@ -195,10 +192,6 @@ router.get( '/:guild', authJwt, async (req, res) => {
                 populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }
                 }
             })
             .exec()
@@ -212,6 +205,7 @@ router.get( '/:guild', authJwt, async (req, res) => {
     }
 } )
 
+// delete guild
 router.delete('/:guild', authJwt, async (req, res) => {
     try {
         const guildId = req.params.guild

@@ -14,6 +14,73 @@ router.get( '/@me', authJwt, (req, res) => {
     res.status(200).send(req.user)
 } )
 
+// add reputation to user
+router.put('/:accountId/reputations', authJwt, async (req, res) => {
+    try {
+        const { accountId } = req.params
+        const userId = req.user._id.toString()
+
+        if( userId === accountId ) return res.status(404).json({ message: "You can't add reputution to yourself" })
+
+        if (!db.mongoose.Types.ObjectId.isValid(accountId)) return res.status(400).json({ message: 'Invalid account id' })
+        const account = await User.findById(accountId)
+        if(!account) return res.status(404).json({ message: 'Account not found' })
+        const user = await User.findById(userId)
+
+        if( account.reputations.includes( userId ) ) {
+            account.reputations = account.reputations.filter( id => id.toString() !== userId )
+            account.reputationsCount = account.reputations.length
+            user.givenReputations = user.givenReputations.filter( id => id.toString() !== accountId )
+        } else {
+            account.reputations.addToSet( userId )
+            account.reputationsCount = account.reputations.length
+            user.givenReputations.addToSet( accountId )
+        }
+        await account.save()
+        await user.save()
+
+        sendToAllUserIds(req.io, [accountId], 'REPUTATION_UPDATE', {userId: accountId, reputations: account.reputations})
+        req.io.emit('REPUTATION_UPDATE', {userId: accountId, reputationsCount: account.reputations.length})
+
+        res.status(200).json({givenReputations: user.givenReputations})
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// add vouch to user
+router.put('/:accountId/vouches', authJwt, async (req, res) => {
+    try {
+        const { accountId } = req.params
+        const userId = req.user._id.toString()
+
+        if( userId === accountId ) return res.status(404).json({ message: "You can't add reputution to yourself" })
+
+        if (!db.mongoose.Types.ObjectId.isValid(accountId)) return res.status(400).json({ message: 'Invalid account id' })
+        const account = await User.findById(accountId)
+        if(!account) return res.status(404).json({ message: 'Account not found' })
+        const user = await User.findById(userId)
+
+        if( account.vouches.includes( userId ) ) return res.status(404).json({ message: 'Already vouched for account' })
+
+        account.vouches.addToSet( userId )
+        account.vouchesCount = account.vouches.length
+        user.givenVouches.addToSet( accountId )
+        
+        await account.save()
+        await user.save()
+
+        sendToAllUserIds(req.io, [accountId], 'VOUCH_UPDATE', {userId: accountId, vouches: account.vouches})
+        req.io.emit('VOUCH_UPDATE', {userId: accountId, vouchesCount: account.vouches.length})
+
+        res.status(200).json({givenVouches: user.givenVouches})
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 // get user profile
 router.get( '/:profileId/profile', authJwt, async (req, res) => {
     try {
@@ -22,7 +89,7 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         const { with_mutual_guilds, with_mutual_friends_count } = req.query
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
-        const profile = await User.findById(profileId).select('avatar username discriminator createdAt')
+        const profile = await User.findById(profileId).select('avatar username discriminator status createdAt vouchesCount reputationsCount')
         if(!profile) return res.status(404).json({ message: 'Profile not found' })
 
         const result = {
@@ -41,7 +108,7 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
                 friends: { $all: [userId, profileId] }
             }).select('_id')
 
-            result.mutual_friends = mutual_friends
+            result.mutual_friends = mutual_friends.map( mf => mf._id )
             result.mutual_friends_count = mutual_friends.length
         }
 
@@ -69,25 +136,16 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                 path: 'invites',
                 populate: { path: 'guild', select: 'name' }
             })
-            .populate({ path: 'owner', select: 'avatar username discriminator status customStatus' })
-            .populate({ path: 'members', select: 'avatar username discriminator status customStatus createdAt' })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position messages',
                 populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: [{
-                        path: 'author',
-                        select: 'avatar username discriminator status createdAt'
-                    }, {
+                    populate: {
                         path: 'hasReply',
-                        select: 'content author',
-                        populate: {
-                            path: 'author',
-                            select: 'username'
-                        }
-                    }]
+                        select: 'content author'
+                    }
                 }
             })
             .exec()
@@ -98,6 +156,53 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 } )
+
+// get global users
+router.get('/@me/globalUsers', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
+            .select('friends sentFriendRequests pendingFriendRequests')
+            .populate([
+                { path: 'guilds', select: 'members' },
+                { path: 'channels', select: 'participants' }
+            ])
+            .lean()
+            .exec()
+
+
+        const fullGuildsMembers = user.guilds.flatMap( g => g.members )
+        const fullChannelsParticipants = user.channels.flatMap( c => c.participants )
+
+        const fullRelatedUsers = [
+            ...user.friends,
+            ...user.sentFriendRequests || [],
+            ...user.pendingFriendRequests || [],
+            ...fullGuildsMembers,
+            ...fullChannelsParticipants
+        ].map( id => id.toString() )//.filter( id => id !== userId )
+
+        const UsersToSet = new Set(fullRelatedUsers)
+        
+        const resultPromises = Array.from(UsersToSet).map( globalUserId => {
+            return User.findById(globalUserId).select('avatar username discriminator status customStatus createdAt vouchesCount reputationsCount')
+        } )
+        
+        const globalUsers = await Promise.all(resultPromises)
+
+        for( const globalUser of globalUsers ) {
+            if( globalUser.customStatus.status ) {
+                globalUser.status = globalUser.customStatus.status
+            }
+            //globalUser.set('customStatus', undefined, { strict: false })
+        }
+
+        res.status(200).json(globalUsers)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
 
 // get user direct messages
 router.get( '/@me/channels', (req, res) => {
@@ -168,23 +273,10 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                 await receiver.save()
     
                 const populatedDMChannel = await Channel.findById(newDMChannel._id)
-                    .populate([{
+                    .populate({
                         path: 'messages',
-                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                        populate: {
-                            path: 'author',
-                            select: 'avatar username discriminator status'
-                        }
-                    }, {
-                        path: 'participants',
-                        select: 'avatar username discriminator status customStatus createdAt'
-                    }])
-    
-                for( const participant of populatedDMChannel.participants ) {
-                    if( participant.customStatus.status ) {
-                        participant.status = participant.customStatus.status
-                    }
-                }
+                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
+                    })
 
                 const usersRecievedChannel = [userId, receiverId]
     
@@ -201,23 +293,10 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
     
                 if( usersRecievedChannel.length ) {
                     const populatedDMChannel = await Channel.findById(dmChannel._id)
-                        .populate([{
+                        .populate({
                             path: 'messages',
-                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                            populate: {
-                                path: 'author',
-                                select: 'avatar username discriminator status'
-                            }
-                        }, {
-                            path: 'participants',
-                            select: 'avatar username discriminator status customStatus createdAt'
-                        }])
-        
-                    for( const participant of populatedDMChannel.participants ) {
-                        if( participant.customStatus.status ) {
-                            participant.status = participant.customStatus.status
-                        }
-                    }
+                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
+                        })
         
                     sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
@@ -266,23 +345,10 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
         await user.save()
 
         const populatedGroupDMChannel = await Channel.findById(newGroupDMChannel._id)
-            .populate([{
+            .populate({
                 path: 'messages',
-                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                populate: {
-                    path: 'author',
-                    select: 'avatar username discriminator status'
-                }
-            }, {
-                path: 'participants',
-                select: 'avatar username discriminator status customStatus createdAt'
-            }])
-
-        for( const participant of populatedGroupDMChannel.participants ) {
-            if( participant.customStatus.status ) {
-                participant.status = participant.customStatus.status
-            }
-        }
+                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
+            })
 
         sendToAllUserIds(req.io, channelParticipants, 'CHANNEL_CREATE', populatedGroupDMChannel)
         res.status(200).json({ message: 'Group DM channel created successfully', channel: newGroupDMChannel._id.toString() })
@@ -319,20 +385,8 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
             await sender.save()
 
             const addFriendData = {
-                user: {
-                    _id: senderId,
-                    avatar: sender.avatar,
-                    username: sender.username,
-                    discriminator: sender.discriminator,
-                    status: sender.customStatus.status ? sender.customStatus.status : sender.status
-                },
-                target: {
-                    _id: userId,
-                    avatar: user.avatar,
-                    username: user.username,
-                    discriminator: user.discriminator,
-                    status: user.customStatus.status ? user.customStatus.status : user.status
-                },
+                user: senderId,
+                target: userId,
                 actionType: 'ADD_FRIEND'
             }
 
@@ -373,16 +427,6 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
                 await user.save()
     
                 const populatedDMChannel = await Channel.findById(newDMChannel._id)
-                    .populate({
-                        path: 'participants',
-                        select: 'avatar username discriminator status customStatus createdAt'
-                    })
-    
-                for( const participant of populatedDMChannel.participants ) {
-                    if( participant.customStatus.status ) {
-                        participant.status = participant.customStatus.status
-                    }
-                }
     
                 sendToAllUserIds(req.io, addFriendUserIds, 'CHANNEL_CREATE', populatedDMChannel)
             }
@@ -398,20 +442,8 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
         await user.save()
 
         const sendRequestData = {
-            user: {
-                _id: senderId,
-                avatar: sender.avatar,
-                username: sender.username,
-                discriminator: sender.discriminator,
-                status: sender.customStatus.status ? sender.customStatus.status : sender.status
-            },
-            target: {
-                _id: userId,
-                avatar: user.avatar,
-                username: user.username,
-                discriminator: user.discriminator,
-                status: user.customStatus.status ? user.customStatus.status : user.status
-            },
+            user: senderId,
+            target: userId,
             actionType: 'SEND_REQUEST'
         }
 
@@ -499,20 +531,8 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
         await receiver.save()
 
         const addFriendData = {
-            user: {
-                _id: senderId,
-                avatar: sender.avatar,
-                username: sender.username,
-                discriminator: sender.discriminator,
-                status: sender.customStatus.status ? sender.customStatus.status : sender.status
-            },
-            target: {
-                _id: receiverId,
-                avatar: receiver.avatar,
-                username: receiver.username,
-                discriminator: receiver.discriminator,
-                status: receiver.customStatus.status ? receiver.customStatus.status : receiver.status
-            },
+            user: senderId,
+            target: receiverId,
             actionType: 'ADD_FRIEND'
         }
 
@@ -558,21 +578,8 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             const populatedDMChannel = await Channel.findById(newDMChannel._id)
                 .populate([{
                     path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'author',
-                        select: 'avatar username discriminator status'
-                    }
-                }, {
-                    path: 'participants',
-                    select: 'avatar username discriminator status customStatus createdAt'
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
                 }])
-
-            for( const participant of populatedDMChannel.participants ) {
-                if( participant.customStatus.status ) {
-                    participant.status = participant.customStatus.status
-                }
-            }
 
             sendToAllUserIds(req.io, addFriendUserIds, 'CHANNEL_CREATE', populatedDMChannel)
         } else {
@@ -592,21 +599,8 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             const populatedDMChannel = await Channel.findById(dmChannel._id)
                 .populate([{
                     path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'author',
-                        select: 'avatar username discriminator status'
-                    }
-                }, {
-                    path: 'participants',
-                    select: 'avatar username discriminator status customStatus createdAt'
+                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
                 }])
-
-            for( const participant of populatedDMChannel.participants ) {
-                if( participant.customStatus.status ) {
-                    participant.status = participant.customStatus.status
-                }
-            }
 
             sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
         }
