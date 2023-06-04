@@ -27,12 +27,27 @@ router.put('/:accountId/reputations', authJwt, async (req, res) => {
         if(!account) return res.status(404).json({ message: 'Account not found' })
         const user = await User.findById(userId)
 
-        if( account.reputations.includes( userId ) ) {
-            account.reputations = account.reputations.filter( id => id.toString() !== userId )
+        if( !account.reputations.find( r => r.user?.toString() === userId ) && user.givenReputations.includes( accountId ) ) {
+            user.givenReputations = user.givenReputations.filter( id => id.toString() !== accountId )
+            await user.save()
+        }
+
+        account.reputations = account.reputations.filter( r => r.reason && r.user )
+
+        if( account.reputations.find( r => r.user?.toString() === userId ) ) {
+            account.reputations = account.reputations.filter( r => r.user.toString() !== userId )
             account.reputationsCount = account.reputations.length
             user.givenReputations = user.givenReputations.filter( id => id.toString() !== accountId )
         } else {
-            account.reputations.addToSet( userId )
+            const { reason } = req.body
+            if( !reason || typeof reason !== "string" || reason.length < 3 ) return res.status(404).json({ message: "Enter a valid reason" })
+
+            const repObject = {
+                user: userId,
+                reason: reason
+            }
+
+            account.reputations.addToSet( repObject )
             account.reputationsCount = account.reputations.length
             user.givenReputations.addToSet( accountId )
         }
@@ -52,6 +67,9 @@ router.put('/:accountId/reputations', authJwt, async (req, res) => {
 // add vouch to user
 router.put('/:accountId/vouches', authJwt, async (req, res) => {
     try {
+        const { reason } = req.body
+        if( !reason || typeof reason !== "string" || reason.length < 3 ) return res.status(404).json({ message: "Enter a valid reason" })
+    
         const { accountId } = req.params
         const userId = req.user._id.toString()
 
@@ -62,9 +80,16 @@ router.put('/:accountId/vouches', authJwt, async (req, res) => {
         if(!account) return res.status(404).json({ message: 'Account not found' })
         const user = await User.findById(userId)
 
-        if( account.vouches.includes( userId ) ) return res.status(404).json({ message: 'Already vouched for account' })
+        account.vouches = account.vouches.filter( v => v.reason && v.user )
 
-        account.vouches.addToSet( userId )
+        if( account.vouches.find( v => v.user?.toString() === userId ) ) return res.status(404).json({ message: 'Already vouched for account' })
+
+        const vouchObject = {
+            user: userId,
+            reason: reason
+        }
+
+        account.vouches.addToSet( vouchObject )
         account.vouchesCount = account.vouches.length
         user.givenVouches.addToSet( accountId )
         

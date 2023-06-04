@@ -67,8 +67,13 @@ const User = mongoose.model(
             ref: 'Channel' 
         }],
         reputations: [{
-            type: Schema.Types.ObjectId,
-            ref: 'User' 
+            user: {
+                type: Schema.Types.ObjectId,
+                ref: 'User' 
+            },
+            reason: {
+                type: String
+            }
         }],
         reputationsCount: Number,
         givenReputations: [{
@@ -76,8 +81,13 @@ const User = mongoose.model(
             ref: 'User' 
         }],
         vouches: [{
-            type: Schema.Types.ObjectId,
-            ref: 'User' 
+            user: {
+                type: Schema.Types.ObjectId,
+                ref: 'User' 
+            },
+            reason: {
+                type: String
+            }
         }],
         vouchesCount: Number,
         givenVouches: [{
