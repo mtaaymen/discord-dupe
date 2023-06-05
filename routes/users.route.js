@@ -114,8 +114,10 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         const { with_mutual_guilds, with_mutual_friends_count } = req.query
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
-        const profile = await User.findById(profileId).select('avatar username discriminator status createdAt vouchesCount reputationsCount')
+        const profile = await User.findById(profileId).select('avatar username discriminator status customStatus createdAt vouchesCount reputationsCount')
         if(!profile) return res.status(404).json({ message: 'Profile not found' })
+
+        if( profile.customStatus.status ) profile.status = profile.customStatus.status
 
         const result = {
             user: profile,
