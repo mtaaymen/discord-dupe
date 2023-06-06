@@ -113,6 +113,19 @@ router.post('/signin', async (req, res) => {
 
 router.get("/permissions", authJwt, async (req, res) => {
     try {
+        const userId = req.user._id.toString()
+
+        const guilds = await Guild.find({ members: userId })
+            .populate({
+                path: 'roles',
+                select: 'permissions'
+            })
+            .populate({
+                path: 'channels',
+                select: 'permissions'
+            })
+        console.log( guilds )
+        res.status(200).json([])
         /*const userId = req.user._id
     
         // Find all the servers where the user is a member
@@ -182,7 +195,7 @@ router.get("/permissions", authJwt, async (req, res) => {
         }))*/
     
         //res.json(serverPermissions)
-        res.json([])
+        //res.json([])
     } catch (err) {
         console.error(err)
         res.status(500).json({ message: 'Server error' })
