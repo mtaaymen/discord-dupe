@@ -165,7 +165,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position messages',
+                select: 'name type topic parent position messages server',
                 populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',

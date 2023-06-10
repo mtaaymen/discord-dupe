@@ -11,7 +11,7 @@ const db = require("../models")
 const User = db.user
 const Role = db.role
 const Guild = db.guild
-const Channel = db.guild
+const Channel = db.channel
 
 
 function validatePassword(email, username, password) {
@@ -116,16 +116,50 @@ router.get("/permissions", authJwt, async (req, res) => {
         const userId = req.user._id.toString()
 
         const guilds = await Guild.find({ members: userId })
-            .populate({
-                path: 'roles',
-                select: 'permissions'
-            })
+            .select('channels')
             .populate({
                 path: 'channels',
                 select: 'permissions'
             })
-        console.log( guilds )
-        res.status(200).json([])
+
+        const roles = await Role.find({ members: userId })
+            .select('permissions server')
+
+        const dmChannels = await Channel.find({ participants: userId })
+            .select('permissions')
+
+        const channelPermissions = [
+            ...guilds.flatMap( g => {
+                return g.channels.map( c => {
+                    return {
+                        _id: c._id,
+                        permissions: c.permissions.map( p => {
+                            return {
+                                allow: p.allow,
+                                deny: p.deny,
+                                type: p._type,
+                                id: p.id
+                            }
+                        } )
+                    }
+                } )
+            }),
+            ...dmChannels.map( c => {
+                return {
+                    _id: c._id,
+                    permissions: c.permissions.map( p => {
+                        return {
+                            allow: p.allow,
+                            deny: p.deny,
+                            type: p._type,
+                            id: p.id
+                        }
+                    } )
+                }
+            } ),
+        ]
+
+        res.status(200).json({channels: channelPermissions, roles: roles})
         /*const userId = req.user._id
     
         // Find all the servers where the user is a member

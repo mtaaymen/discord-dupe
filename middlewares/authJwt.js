@@ -11,7 +11,7 @@ const authJwt = async (req, res, next) => {
             .select('avatar version blockedUsers createdAt username discriminator guilds dob email friends mutedChannels mutedServers pendingFriendRequests sentFriendRequests phone status reputations givenReputations vouches givenVouches')
             .populate({
                 path: 'channels',
-                select: 'owner name messages isGroup participants permissions',
+                select: 'owner name messages isGroup participants permissions type server',
                 populate: [{
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',

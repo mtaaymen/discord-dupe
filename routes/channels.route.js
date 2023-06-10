@@ -75,7 +75,7 @@ router.patch('/:channelId', authJwt, async (req, res) => {
 
         // retrieve the updated channel object
         const updatedChannel = await Channel.findById(channelId)
-            .select('owner name messages isGroup participants permissions')
+            .select('owner type name messages isGroup participants permissions server')
             .populate([{
                 path: 'messages',
                 select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
@@ -277,7 +277,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
         const server = await Guild.findById(guildId).populate('channels')
 
         // ensure the server has at least one channel
-        if (server.channels.length === 1) {
+        if (server.channels.filter( c => c.type !== 'category' ).length === 1) {
             return res.status(400).json({ message: 'Cannot delete last channel in server' })
         }
 

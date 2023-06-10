@@ -35,7 +35,7 @@ db.mongoose
     .then(async () => {
         console.log("Successfully connected to MongoDB.")
         try {
-            await User.updateMany({}, { status: 'offline' })
+            await User.updateMany({}, { status: 'offline', 'customStatus.status': null })
             console.log('All User status set to offline')
         } catch (err) {
             console.error('Error setting User status to offline:', err)

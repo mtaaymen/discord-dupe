@@ -17,8 +17,9 @@ const guildTypes = {
     1: {
         name: 'Type 1',
         channels: [
-            { name: 'general', position: 1, type: 'text' },
-            { name: 'test', position: 2, type: 'text' },
+            { name: 'text channels', position: 1, type: 'category' },
+            { name: 'general', position: 2, type: 'text' },
+            { name: 'test', position: 3, type: 'text' },
         ],
         roles: [
             { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
@@ -29,10 +30,11 @@ const guildTypes = {
     2: {
         name: 'Type 2',
         channels: [
-            { name: 'global', position: 1, type: 'text' },
-            { name: 'gta', position: 2, type: 'text' },
-            { name: 'cs go', position: 3, type: 'text' },
-            { name: 'valorant', position: 4, type: 'text' },
+            { name: 'text channels', position: 1, type: 'category' },
+            { name: 'global', position: 2, type: 'text' },
+            { name: 'gta', position: 3, type: 'text' },
+            { name: 'cs go', position: 4, type: 'text' },
+            { name: 'valorant', position: 5, type: 'text' },
         ],
         roles: [
             { name: 'owner', color: '#000000', permissions: 70886355229761 },
@@ -123,7 +125,7 @@ router.post( '/', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites messages',
+                select: 'name type topic parent position permissionOverwrites messages server',
                 populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
@@ -152,10 +154,14 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
         const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
         if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
 
+        const channelWithBiggestPos = await Channel.findOne().sort('-position').select('position')
+        const nextChannelPos = channelWithBiggestPos.position + 1
+
         // create a new channel
         const channel = new Channel({
-            name: req.body.name,
-            position: 0,
+            name: req?.body?.name || 'channel',
+            type: req?.body?.type || 'text',
+            position: nextChannelPos,
             server: guildId
         })
 
@@ -188,7 +194,7 @@ router.get( '/:guild', authJwt, async (req, res) => {
             .populate({ path: 'members', select: 'username discriminator avatar status createdAt' })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites messages',
+                select: 'name type topic parent position permissionOverwrites messages server',
                 populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
