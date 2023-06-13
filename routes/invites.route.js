@@ -14,7 +14,7 @@ router.get('/:code', authJwt, async ( req, res ) => {
         const invite = await Invite.findOne({ code: req.params.code })
             .populate('guild', ['_id', 'name', 'icon', 'description'])
             .populate('channel', ['_id', 'name', 'type'])
-            .populate('inviter', ['_id', 'username', 'discriminator'])
+            .populate('inviter', ['_id', 'username'])
     
         if (!invite) return res.status(404).json({ message: 'Invite not found' });
         
@@ -85,7 +85,7 @@ router.post('/:code', authJwt, async (req, res) => {
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username discriminator avatar status' }
+                populate: { path: 'inviter', select: 'avatar username avatar status' }
             })
             .populate({
                 path: 'invites',
@@ -100,11 +100,7 @@ router.post('/:code', authJwt, async (req, res) => {
                 select: 'name type topic parent position permissionOverwrites messages',
                 populate: {
                     path: 'messages',
-                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'author',
-                        select: 'avatar username discriminator avatar status'
-                    }
+                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
                 }
             })
             .exec()

@@ -39,7 +39,8 @@ function generateToken(user) {
         username: user.username,
         email: user.email,
         discriminator: user.discriminator,
-        version: user.version,
+        uid: user.uid,
+        version: user.version
     }
     const token = jwt.sign(payload, config.JWT_SECRET)
     user.token = token
@@ -68,6 +69,9 @@ router.post('/signup', async (req, res) => {
         const emailRegistered = await User.findOne({ email: email })
         if( emailRegistered ) return res.status(400).send({ message: "Email is already registered.", email: true })
 
+        const usernameRegistered = await User.findOne({ username: username })
+        if( usernameRegistered ) return res.status(400).send({ message: "Username is already registered.", username: true })
+
         if( !validatePassword(email, username, password) ) return res.status(400).send({ message: "Your password is weak.", password: true })
 
         let discriminator = ''
@@ -78,8 +82,19 @@ router.post('/signup', async (req, res) => {
             userExists = !!existingUser // Convert to boolean
         }
 
+        let uid
+        const userWithBiggestUid = await User.findOne().sort('-uid').select('uid')
+        if( !userWithBiggestUid.uid ) {
+            userWithBiggestUid.uid = 1
+            await userWithBiggestUid.save()
+
+            uid = 2
+        } else {
+            uid = userWithBiggestUid.uid + 1
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10)
-        const user = new User({ username, dob, discriminator, email, password: hashedPassword })
+        const user = new User({ uid, username, dob, discriminator, email, password: hashedPassword })
         //const token = jwt.sign({ userId: user._id }, config.JWT_SECRET, { expiresIn: '1h' });
         const token = generateToken(user)
         res.json({ message: 'User created successfully', token })

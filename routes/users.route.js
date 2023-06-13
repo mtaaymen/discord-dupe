@@ -10,7 +10,8 @@ const User = db.user
 const Guild = db.guild
 
 // get user info
-router.get( '/@me', authJwt, (req, res) => {
+router.get( '/@me', authJwt, async (req, res) => {
+    await User.updateOne({_id: req.user._id}, { lastSeen: new Date() })
     res.status(200).send(req.user)
 } )
 
@@ -114,7 +115,7 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         const { with_mutual_guilds, with_mutual_friends_count } = req.query
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
-        const profile = await User.findById(profileId).select('avatar username discriminator status customStatus createdAt vouchesCount reputationsCount')
+        const profile = await User.findById(profileId).select('uid avatar username status customStatus createdAt vouchesCount reputationsCount')
         if(!profile) return res.status(404).json({ message: 'Profile not found' })
 
         if( profile.customStatus.status ) profile.status = profile.customStatus.status
@@ -153,7 +154,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
         const guilds = await Guild.find({ members: req.user._id })
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username discriminator avatar status' }
+                populate: { path: 'inviter', select: 'avatar username avatar status' }
             })
             .populate({
                 path: 'invites',
@@ -209,13 +210,10 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
             ...fullChannelsParticipants
         ].map( id => id.toString() )//.filter( id => id !== userId )
 
-        const UsersToSet = new Set(fullRelatedUsers)
-        
-        const resultPromises = Array.from(UsersToSet).map( globalUserId => {
-            return User.findById(globalUserId).select('avatar username discriminator status customStatus createdAt vouchesCount reputationsCount')
-        } )
-        
-        const globalUsers = await Promise.all(resultPromises)
+        const userIds = [...new Set(fullRelatedUsers)]
+
+        const globalUsers = await User.find({ _id: { $in: userIds } })
+            .select('uid avatar username status customStatus createdAt vouchesCount reputationsCount')
 
         for( const globalUser of globalUsers ) {
             if( globalUser.customStatus.status ) {
@@ -388,12 +386,12 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
 // add friend
 router.post('/@me/relationships', authJwt, async (req, res) => {
     try {
-        const { username, discriminator } = req.body
+        const { username } = req.body
         const senderId = req.user._id.toString()
     
         const [sender, user] = await Promise.all([
             User.findById(senderId),
-            User.findOne({ username, discriminator }),
+            User.findOne({ username }),
         ])
 
         const userId = user?._id?.toString()

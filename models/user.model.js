@@ -98,7 +98,12 @@ const User = mongoose.model(
             type: String,
             required: true,
             minlength: 4,
-            maxlength: 4,
+            maxlength: 4
+        },
+        uid: {
+            type: Number,
+            required: true,
+            unique: true
         },
         locale: {
             type: String,

@@ -35,6 +35,26 @@ db.mongoose
     .then(async () => {
         console.log("Successfully connected to MongoDB.")
         try {
+            const allUsers = await User.find({}).select('uid username')
+            for( const user of allUsers ) {
+                /*user.uid = 0
+                await user.save()
+                console.log( `set uid of ${user.username} to ${user.uid}` )*/
+                if( !user.uid ) {
+                    const userWithBiggestUid = await User.findOne().sort('-uid').select('uid username')
+                    if( !userWithBiggestUid.uid ) {
+                        userWithBiggestUid.uid = 1
+                        await userWithBiggestUid.save()
+                        console.log( `set uid of ${userWithBiggestUid.username} to ${userWithBiggestUid.uid}` )
+                    }
+                    if( user._id.toString() === userWithBiggestUid._id.toString() ) continue
+
+                    user.uid = userWithBiggestUid.uid + 1
+                    await user.save()
+                    console.log( `set uid of ${user.username} to ${user.uid}` )
+                }
+            }
+
             await User.updateMany({}, { status: 'offline', 'customStatus.status': null })
             console.log('All User status set to offline')
         } catch (err) {

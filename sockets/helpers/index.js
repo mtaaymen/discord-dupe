@@ -8,7 +8,7 @@ async function onlineStatus(socket, userId, status, custom) {
             : { status }
 
         const user = await User.findByIdAndUpdate(userId, update, { new: true})
-            .select('username discriminator avatar status customStatus')
+            .select('username avatar status customStatus')
 
         if (!user) return console.error(`User ${userId} not found.`)
 
