@@ -59,6 +59,11 @@ function getTokenVersion(userToken, headerToken) {
     }
 }
 
+function isEmail(input) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(input)
+}
+
 router.post('/signup', async (req, res) => {
     try {
         const { username, dob, email, password } = req.body
@@ -107,7 +112,13 @@ router.post('/signup', async (req, res) => {
 router.post('/signin', async (req, res) => {
     try {
         const { email, password } = req.body
-        const user = await User.findOne({ email })
+        let user
+        if( isEmail(email) ) {
+            user = await User.findOne({ email })
+        } else {
+            user = await User.findOne({ username: email })
+        }
+
         if (!user) throw new Error('Invalid email or password')
         
         const isMatch = await bcrypt.compare(password, user.password)
