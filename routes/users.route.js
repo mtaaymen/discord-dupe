@@ -1,18 +1,384 @@
 const express = require('express')
 const router = express.Router()
+const bcrypt = require('bcrypt')
+const jwt = require('jsonwebtoken')
+const speakeasy = require('speakeasy')
+const QRCode = require('qrcode')
 
 const { authJwt } = require('../middlewares')
 const { sendToAllUserIds } = require('../sockets/helpers')
 
+const config = require('../config')
 const db = require("../models")
 const Channel = db.channel
 const User = db.user
 const Guild = db.guild
+const Avatar = db.avatar
+
+function validateRGBPattern(rgbString) {
+    const pattern = /^(rgb|rgba)\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})(,\s*(\d+(\.\d+)?))?\)$/
+    const matches = rgbString.match(pattern)
+  
+    if (matches) {
+        const [, colorType, r, g, b, , a] = matches
+        const isValidColor = r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255
+  
+        if (colorType === 'rgba') {
+            const isValidAlpha = a >= 0 && a <= 1
+            return isValidColor && isValidAlpha
+        }
+  
+        return isValidColor
+    }
+  
+    return false
+}
+
+function validateUsername(username) {
+    if (!username) return false
+    
+    if (username.length < 2 || username.length > 32) return false
+  
+    let alphanumericRegex = /^[a-zA-Z0-9_]+$/
+    if (!alphanumericRegex.test(username)) return false
+    
+    return true
+}
+
+function validatePassword(email, username, password) {
+    if (password.length < 8) return false
+    
+    if (password.includes(username) || password.includes(email)) return false
+    
+    const containsLowercase = /[a-z]/.test(password)
+    const containsNumber = /\d/.test(password)
+
+    if (!containsLowercase || !containsNumber /*|| !containsSpecialChar*/) return false
+
+    return true
+}
+
+function generateToken(user) {
+    user.version += 1
+    
+    const payload = {
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        discriminator: user.discriminator,
+        uid: user.uid,
+        version: user.version
+    }
+    const token = jwt.sign(payload, config.JWT_SECRET)
+    user.token = token
+    user.save()
+    return token
+}
 
 // get user info
 router.get( '/@me', authJwt, async (req, res) => {
-    await User.updateOne({_id: req.user._id}, { lastSeen: new Date() })
-    res.status(200).send(req.user)
+    try {
+        await User.updateOne({_id: req.user._id}, { lastSeen: new Date() })
+        res.status(200).send(req.user)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// get auth app secret and qrCode
+router.get( '/@me/mfa/secret', authJwt, async (req, res) => {
+    try {
+        const secret = speakeasy.generateSecret({ length: 10 })
+
+        const otpauthURL = speakeasy.otpauthURL({
+            secret: secret.ascii,
+            label: `${config.APP_NAME}: ${req.user.username}`,
+            issuer: config.APP_NAME,
+        })
+
+        QRCode.toDataURL(otpauthURL, (err, data_url) => {
+            res.status(200).send({ secret: secret.base32, qrCode: data_url })
+        })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// enable 2fa
+router.post( '/@me/mfa/totp/enable', authJwt, async (req, res) => {
+    try {
+        const { code, password, secret } = req.body
+
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId).select('password mfa mfaEnabled')
+
+        if( user.mfaEnabled ) return res.status(400).send({ message: "Two-factor is already enabled in this account.", password: true })
+
+        if( !password ) return res.status(400).send({ message: "Password does not match.", password: true })
+
+        const isMatch = await bcrypt.compare(password, user.password)
+        if( !isMatch ) return res.status(400).send({ message: "Password does not match.", password: true })
+
+        if( !secret || secret.length !== 16 ) return res.status(400).send({ message: "Invalid two-factor secret.", secret: true })
+        if( !code || code.length !== 6 ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        const verified = speakeasy.totp.verify({
+            secret: secret,
+            encoding: 'base32',
+            token: code
+        })
+
+        if( !verified ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        //const hashedSecret = await bcrypt.hash(secret, 10)
+
+        await User.updateOne({_id: userId}, {
+            mfaEnabled: true,
+            mfa: {
+                secret: secret,
+                enabledAt: Date.now(),
+            },
+        })
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+
+// disable 2fa
+router.post( '/@me/mfa/totp/disable', authJwt, async (req, res) => {
+    try {
+        const { code, password } = req.body
+
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId).select('password mfa mfaEnabled')
+
+        if( !user.mfaEnabled ) return res.status(400).send({ message: "Two-factor is not enabled in this account.", code: true })
+
+        if( !password ) return res.status(400).send({ message: "Password does not match.", password: true })
+        const isMatch = await bcrypt.compare(password, user.password)
+        if( !isMatch ) return res.status(400).send({ message: "Password does not match.", password: true })
+
+        if( !code || code.length !== 6 ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        const verified = speakeasy.totp.verify({
+            secret: user.mfa.secret,
+            encoding: 'base32',
+            token: code
+        })
+
+        if( !verified ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        await User.updateOne({_id: userId}, {
+            mfaEnabled: false,
+            mfa: {
+                secret: ""
+            }
+        })
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+
+// request email code
+router.put( '/@me/email', authJwt, async (req, res) => {
+    try {
+
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// verify email code
+router.post( '/@me/email/verify-code', authJwt, async (req, res) => {
+    try {
+        const { code } = req.body
+        console.log(code)
+
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// put https://discord.com/api/v9/users/@me/email
+// POST https://discord.com/api/v9/users/@me/email/verify-code {code: "hehe"}
+
+// update user profile info
+router.patch( '/@me/profile', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId).select('bio')
+
+        const fieldMap = {
+            'user-bio': "bio"
+        }
+
+        const updates = {}
+        for (const [key, value] of Object.entries(req.body)) {
+            const field = fieldMap[key]
+            if (field) updates[field] = value
+        }
+
+        if( updates.bio ) {
+            if( updates.bio === user.bio ) return res.status(400).send({ message: "Cannot set same bio.", bio: true })
+            if( updates.bio.length > 190 ) return res.status(400).send({ message: "Bio too long.", bio: true })
+
+            await User.updateOne({_id: userId}, { bio: updates.bio })
+
+            req.io.emit("USER_UPDATE", {
+                userId,
+                updates: {
+                    bio: updates.bio
+                }
+            })
+
+            return res.status(200).end()
+        }
+
+        res.status(400).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// update user info
+router.patch( '/@me', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId).select('password email version token twoFactor username')
+
+        const fieldMap = {
+            'user-old-password': 'oldPassword',
+            'user-username': 'username',
+            'user-password': 'password',
+            'user-new-password': 'newPassword',
+            'user-email': 'email',
+            'user-banner-color': "banner"
+        }
+
+        const updates = {}
+        for (const [key, value] of Object.entries(req.body)) {
+            const field = fieldMap[key]
+            if (field) updates[field] = value
+        }
+
+        const updatedFields = {}
+
+        if( updates.banner ) {
+            if( !validateRGBPattern( updates.banner ) ) return res.status(400).send({ message: "Banner color pattern does not match.", banner: true })
+
+            await User.updateOne({_id: userId}, { banner: updates.banner })
+
+
+            req.io.emit("USER_UPDATE", {
+                userId,
+                updates: {
+                    banner: updates.banner
+                }
+            })
+
+            user.banner = updates.banner
+            updatedFields.banner = updates.banner
+        }
+
+        if( updates.username ) {
+            if( !updates.password ) return res.status(400).send({ message: "Password does not match.", username: true })
+
+            const usernameValidated = validateUsername(updates.username)
+            if( !usernameValidated ) return res.status(400).send({ message: "Username is not valid.", username: true })
+
+            const usernameRegistered = await User.findOne({ username: updates.username })
+            if( usernameRegistered ) return res.status(400).send({ message: "Username is already registered.", username: true })
+
+            const isMatch = await bcrypt.compare(updates.password, user.password)
+            if( !isMatch ) return res.status(400).send({ message: "Password does not match.", password: true })
+
+            await User.updateOne({_id: userId}, { username: updates.username })
+
+            req.io.emit("USER_UPDATE", {
+                userId,
+                updates: {
+                    username: updates.username
+                }
+            })
+            //const token = generateToken(user)
+
+            user.username = updates.username
+            updatedFields.username = updates.username
+            updatedFields.requiresToken = true
+
+            //return res.status(200).send({username: updates.username, token})
+        }
+
+        if( updates.email ) {
+            if( !updates.password ) return res.status(400).send({ message: "Password does not match.", oldPassword: true })
+
+            if( !updates.email.match(/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/) )
+                return res.status(400).send({ message: "Email pattern doesn't match.", email: true })
+
+            const emailRegistered = await User.findOne({ email: updates.email })
+            if( emailRegistered ) return res.status(400).send({ message: "Email is already registered.", email: true })
+
+            const isMatch = await bcrypt.compare(updates.password, user.password)
+            if( !isMatch ) return res.status(400).send({ message: "Password does not match.", password: true })
+
+            await User.updateOne({_id: userId}, { email: updates.email })
+
+            //const token = generateToken(user)
+
+            user.email = updates.email
+            updatedFields.email = updates.email
+            updatedFields.requiresToken = true
+
+            //return res.status(200).send({email: updates.email, token})
+        }
+
+        if( updates.newPassword ) {
+            if( !updates.oldPassword ) return res.status(400).send({ message: "Password does not match.", oldPassword: true })
+
+            const isMatch = await bcrypt.compare(updates.oldPassword, user.password)
+            if( !isMatch ) return res.status(400).send({ message: "Password does not match.", oldPassword: true })
+
+            if( updates.newPassword === updates.oldPassword ) return res.status(400).send({ message: "Cannot set the same password.", oldPassword: true })
+
+            if( !validatePassword(user.email, user.username, updates.newPassword) ) return res.status(400).send({ message: "Your password is weak.", password: true })
+
+            const hashedPassword = await bcrypt.hash(updates.newPassword, 10)
+            await User.updateOne({_id: userId}, { password: hashedPassword })
+
+            return res.status(200).end()
+        }
+
+
+        let token = undefined
+        if( updatedFields.requiresToken ) {
+            delete updatedFields.requiresToken
+            token = generateToken(user)
+        }
+
+        if( Object.keys(updatedFields).length ) return res.status(200).send({...updatedFields, token})
+
+        res.status(400).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
 } )
 
 // add reputation to user
@@ -115,7 +481,7 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         const { with_mutual_guilds, with_mutual_friends_count } = req.query
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
-        const profile = await User.findById(profileId).select('uid avatar username status customStatus createdAt vouchesCount reputationsCount')
+        const profile = await User.findById(profileId).select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
         if(!profile) return res.status(404).json({ message: 'Profile not found' })
 
         if( profile.customStatus.status ) profile.status = profile.customStatus.status
@@ -154,7 +520,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
         const guilds = await Guild.find({ members: req.user._id })
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username avatar status' }
+                populate: { path: 'inviter', select: 'avatar username banner status' }
             })
             .populate({
                 path: 'invites',
@@ -166,15 +532,15 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position messages server',
-                populate: {
+                select: 'name type topic parent position server',
+                /*populate: {
                     path: 'messages',
                     select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate: {
                         path: 'hasReply',
                         select: 'content author'
                     }
-                }
+                }*/
             })
             .exec()
 
@@ -213,7 +579,7 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
         const userIds = [...new Set(fullRelatedUsers)]
 
         const globalUsers = await User.find({ _id: { $in: userIds } })
-            .select('uid avatar username status customStatus createdAt vouchesCount reputationsCount')
+            .select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
 
         for( const globalUser of globalUsers ) {
             if( globalUser.customStatus.status ) {

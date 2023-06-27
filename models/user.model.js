@@ -11,6 +11,11 @@ const User = mongoose.model(
             minlength: 2,
             maxlength: 32,
         },
+        bio: {
+            type: String,
+            trim: true,
+            maxlength: 191,
+        },
         email: {
             type: String,
             required: true,
@@ -25,10 +30,8 @@ const User = mongoose.model(
             minlength: 6,
             maxlength: 1000,
         },
-        avatar: {
-            type: String,
-            default: 'default-avatar-url'
-        },
+        avatar: String,
+        banner: String,
         status: {
             type: String,
             enum: ['online', 'offline', 'idle', 'dnd'],
@@ -116,6 +119,14 @@ const User = mongoose.model(
         emailVerified: {
             type: Boolean,
             default: false,
+        },
+        mfaEnabled: {
+            type: Boolean,
+            default: false
+        },
+        mfa: {
+            secret: String,
+            enabledAt: Date,
         },
         phone: {
             type: String,

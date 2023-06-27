@@ -37,9 +37,14 @@ db.mongoose
         try {
             const allUsers = await User.find({}).select('uid username')
             for( const user of allUsers ) {
+
+                /*user.avatar = "649a999736227fc390010d0c"
+                await user.save()*/
+                
                 /*user.uid = 0
                 await user.save()
-                console.log( `set uid of ${user.username} to ${user.uid}` )*/
+                console.log( `set uid of ${user.username} to ${user.uid}` )
+
                 if( !user.uid ) {
                     const userWithBiggestUid = await User.findOne().sort('-uid').select('uid username')
                     if( !userWithBiggestUid.uid ) {
@@ -52,7 +57,7 @@ db.mongoose
                     user.uid = userWithBiggestUid.uid + 1
                     await user.save()
                     console.log( `set uid of ${user.username} to ${user.uid}` )
-                }
+                }*/
             }
 
             await User.updateMany({}, { status: 'offline', 'customStatus.status': null })
@@ -85,12 +90,14 @@ app.use((req, res, next) => {
 })
 
 
+const avatarRoute = require( './routes/avatar.route' )
 const usersRoute = require( './routes/users.route' )
 const guildsRoute = require( './routes/guilds.route' )
 const channelsRoute = require( './routes/channels.route' )
 const authRoute = require('./routes/auth.route')
 const invitesRoute = require('./routes/invites.route')
 
+app.use( '/avatar', avatarRoute )
 app.use( '/users', usersRoute )
 app.use( '/guilds', guildsRoute )
 app.use( '/channels', channelsRoute )

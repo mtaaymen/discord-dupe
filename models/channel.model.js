@@ -43,6 +43,14 @@ const Channel = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'Message',
         }],
+        last_message_id: {
+            type: Schema.Types.ObjectId,
+            ref: 'Message',
+        },
+        lastTimestamp: {
+            type: Number,
+            default: new Date().getTime,
+        },
         participants: [{
             type: Schema.Types.ObjectId,
             ref: 'User',

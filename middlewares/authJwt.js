@@ -8,18 +8,10 @@ const authJwt = async (req, res, next) => {
         const token = req.headers.authorization.split(' ')[1]
         const decodedToken = jwt.verify(token, config.JWT_SECRET)
         const user = await User.findById(decodedToken.userId)
-            .select('uid avatar version blockedUsers createdAt username guilds dob email friends mutedChannels mutedServers pendingFriendRequests sentFriendRequests phone status reputations givenReputations vouches givenVouches')
+            .select('mfaEnabled uid avatar banner version blockedUsers createdAt username bio guilds dob email friends mutedChannels mutedServers pendingFriendRequests sentFriendRequests phone status reputations givenReputations vouches givenVouches')
             .populate({
                 path: 'channels',
-                select: 'owner name messages isGroup participants permissions type server',
-                populate: [{
-                    path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'hasReply',
-                        select: 'content author'
-                    }
-                }]
+                select: 'owner name last_message_id lastTimestamp isGroup participants permissions type server',
             })
 
         if( !user.channels ) {

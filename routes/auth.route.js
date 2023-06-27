@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 
+const speakeasy = require('speakeasy')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const { authJwt } = require('../middlewares')
@@ -64,6 +65,17 @@ function isEmail(input) {
     return emailRegex.test(input)
 }
 
+function validateUsername(username) {
+    if (!username) return false
+    
+    if (username.length < 2 || username.length > 32) return false
+  
+    let alphanumericRegex = /^[a-zA-Z0-9_]+$/
+    if (!alphanumericRegex.test(username)) return false
+    
+    return true
+}
+
 router.post('/signup', async (req, res) => {
     try {
         const { username, dob, email, password } = req.body
@@ -74,8 +86,12 @@ router.post('/signup', async (req, res) => {
         const emailRegistered = await User.findOne({ email: email })
         if( emailRegistered ) return res.status(400).send({ message: "Email is already registered.", email: true })
 
+        const usernameValidated = validateUsername(username)
+        if( !usernameValidated ) return res.status(400).send({ message: "Username is not valid.", username: true })
+
         const usernameRegistered = await User.findOne({ username: username })
         if( usernameRegistered ) return res.status(400).send({ message: "Username is already registered.", username: true })
+
 
         if( !validatePassword(email, username, password) ) return res.status(400).send({ message: "Your password is weak.", password: true })
 
@@ -99,8 +115,15 @@ router.post('/signup', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10)
-        const user = new User({ uid, username, dob, discriminator, email, password: hashedPassword })
-        //const token = jwt.sign({ userId: user._id }, config.JWT_SECRET, { expiresIn: '1h' });
+        const user = new User({
+            uid,
+            username,
+            dob,
+            discriminator,
+            email,
+            password: hashedPassword
+        })
+        //const token = jwt.sign({ userId: user._id }, config.JWT_SECRET, { expiresIn: '1h' })
         const token = generateToken(user)
         res.json({ message: 'User created successfully', token })
     } catch (err) {
@@ -124,13 +147,56 @@ router.post('/signin', async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password)
         if (!isMatch) throw new Error('Invalid email or password')
 
+        if( user.mfaEnabled ) return res.status(200).send({twoFactorAuth: true, email: user.email})
+
         const currentVersion = user.version
         const tokenVersion = getTokenVersion(user.token ,req.headers.authorization)
         if (tokenVersion === -1 || currentVersion !== tokenVersion) {
             const token = generateToken(user)
-            res.json({ token })
+            res.status(200).json({ token })
         } else {
-            res.json({ token: user.token })
+            res.status(200).json({ token: user.token })
+        }
+    } catch (err) {
+        res.status(401).json({ message: err.message })
+    }
+})
+
+router.post('/signin/mfa', async (req, res) => {
+    try {
+        const { email, password, code } = req.body
+
+        if( !code || code.length !== 6 ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        let user
+        if( isEmail(email) ) {
+            user = await User.findOne({ email })
+        } else {
+            user = await User.findOne({ username: email })
+        }
+
+        if( !user.mfaEnabled ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        if (!user) throw new Error('Invalid email or password')
+        
+        const isMatch = await bcrypt.compare(password, user.password)
+        if (!isMatch) throw new Error('Invalid email or password')
+
+        const verified = speakeasy.totp.verify({
+            secret: user.mfa.secret,
+            encoding: 'base32',
+            token: code
+        })
+
+        if(!verified) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
+
+        const currentVersion = user.version
+        const tokenVersion = getTokenVersion(user.token ,req.headers.authorization)
+        if (tokenVersion === -1 || currentVersion !== tokenVersion) {
+            const token = generateToken(user)
+            res.status(200).json({ token })
+        } else {
+            res.status(200).json({ token: user.token })
         }
     } catch (err) {
         res.status(401).json({ message: err.message })

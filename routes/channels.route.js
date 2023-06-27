@@ -13,7 +13,7 @@ const Role = db.role
 const Invite = db.invite
 const Message = db.message
 
-//get channel by id
+// get channel by id
 router.get('/:channelId', authJwt, async (req, res) => {
     try {
         let { channelId } = req.params
@@ -322,28 +322,40 @@ router.delete('/:channel', authJwt, async (req, res) => {
     }
 })
 
-//get channel messages list
+// get channel messages list
 router.get('/:channel/messages', async (req, res) => {
+    const channelId = req.params.channel
+    const limit = parseInt(req.query.limit) || 10; // Default limit is 10 if not provided
+    const before = req.query.before || null; // Default before is null if not provided
+    
+    let query = { channel: channelId }
+    
+    if (before && db.mongoose.Types.ObjectId.isValid(before)) {
+        query = { channel: channelId, _id: { $lt: before } }
+    }
+
     try {
-        const channelId = req.params.channel
-        const { limit } = req.query
-    
-        // retrieve the channel object with populated messages
-        const channel = await Channel.findById(channelId).populate({
-            path: 'messages',
-            options: {
-                limit: parseInt(limit) || undefined // limit is optional and defaults to undefined
-            }
-        })
-    
-        res.status(200).json({ messages: channel.messages })
+        const messages = await Message.find(query)
+            .sort({ _id: -1 })
+            .limit(limit)
+            .select('content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt')
+            .populate({
+                path: 'hasReply',
+                select: 'content author'
+            })
+            .exec()
+
+            const totalMessages = await Message.countDocuments(query)
+            const hasNextPage = totalMessages > limit
+        
+        res.json({ messages: messages.reverse(), hasNextPage })
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Internal server error' })
+        console.error(error)
+        res.status(500).json({ error: 'Internal Server Error' })
     }
 })
 
-//get channel message by id
+// get channel message by id
 router.get('/:channelId/messages/:messageId', async (req, res) => {
     try {
         const { channelId, messageId } = req.params
@@ -364,7 +376,7 @@ router.get('/:channelId/messages/:messageId', async (req, res) => {
     }
 })
 
-//create message
+// create message
 router.post('/:channelId/messages', authJwt, async (req, res) => {
     try {
         const { content, hasReply, toUser } = req.body
@@ -469,10 +481,14 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
             type: 0
         })
     
-
-
         // Add the message to the channel's messages array
-        await channel.updateOne({ $push: { messages: message._id } })
+        await channel.updateOne({
+            lastTimestamp: new Date().getTime(),
+            last_message_id: message._id,
+            $push: {
+                messages: message._id
+            }
+        })
         
     
         // Populate the message object with the author's username and the channel's name
@@ -492,7 +508,7 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
     }
 })
 
-//delete messsage
+// delete messsage
 router.delete('/:channelId/messages/:messageId', authJwt, async (req, res) => {
     try {
         const { channelId, messageId } = req.params

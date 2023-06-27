@@ -125,15 +125,15 @@ router.post( '/', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites messages server',
-                populate: {
+                select: 'name type topic parent position permissionOverwrites server',
+                /*populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
                     populate:  {
                         path: 'hasReply',
                         select: 'content author'
                     }
-                }
+                }*/
             })
             .exec()
     
