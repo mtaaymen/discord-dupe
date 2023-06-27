@@ -116,6 +116,7 @@ router.post('/signup', async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10)
         const user = new User({
+            avatar: "649a999736227fc390010d0c",
             uid,
             username,
             dob,
