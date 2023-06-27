@@ -49,7 +49,7 @@ const Channel = mongoose.model(
         },
         lastTimestamp: {
             type: Number,
-            default: new Date().getTime,
+            default: Date.now,
         },
         participants: [{
             type: Schema.Types.ObjectId,
