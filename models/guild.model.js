@@ -26,6 +26,21 @@ const serverSchema = new Schema({
         type: Schema.Types.ObjectId,
         ref: 'Role',
     },
+    system_channel_flags: {
+        welcome_messages: {
+            type: Boolean,
+            default: true
+        },
+        tips: {
+            type: Boolean,
+            default: true
+        },
+    },
+    system_channel_id: {
+        type: Schema.Types.ObjectId,
+        ref: 'Channel',
+        default: null
+    },
     members: [{
         type: Schema.Types.ObjectId,
         ref: 'User',

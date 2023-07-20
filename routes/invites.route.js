@@ -80,7 +80,7 @@ router.post('/:code', authJwt, async (req, res) => {
             await invite.save()
         }
 
-        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: req.user._id })
+        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: req.user._id, guild: invite.guild._id })
 
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({
@@ -97,11 +97,11 @@ router.post('/:code', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites messages',
-                populate: {
+                select: 'name type topic parent position server',
+                /*populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                }
+                }*/
             })
             .exec()
     

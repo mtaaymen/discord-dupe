@@ -53,7 +53,7 @@ function decodePermissions(encodedValue) {
     for (const permission in PERMISSIONS_VALUES) {
         const value = BigInt(PERMISSIONS_VALUES[permission])
         if ((BigInt(encodedValue) & value) === value) {
-            permissions.push(permission);
+            permissions.push(permission)
         }
     }
     return permissions
@@ -119,10 +119,10 @@ function checkRolesOverwritePermissions(permissionsList, userRoles, requiredPerm
     for (let i = 0; i < userRoles.length; i++) {
         const role = userRoles[i]
 
+        
         const rolePermissions = permissionsList.find( p => p._type === 0 && p.id.toString() === role._id.toString() )
         if(!rolePermissions) continue
-
-        const hasAllPermissions = hasPermissions(rolePermissions.allowed, rolePermissions.denied, missingPermissions)
+        const hasAllPermissions = hasPermissions(rolePermissions.allow, rolePermissions.deny, missingPermissions)
 
         // if true skip because it needs to check for the rest of the permissions
         // if false means permission denied means stop so return false anyways
@@ -181,11 +181,11 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
 
     let missingPermissions
 
-    const sortedChannelPermissions = channel.permissions.sort( (a, b) => a.position - b.position )
+    const mixedChannelPermissions = [...channel.permissions.users, ...channel.permissions.roles]
+    const sortedChannelPermissions = mixedChannelPermissions.sort( (a, b) => a.position - b.position )
     const userPermissions = sortedChannelPermissions.find( p => p._type === 1 && p.id.toString() === user._id.toString() )
     if( userPermissions ) {
         const userHasDirectPermission = hasPermissions(userPermissions.allow, userPermissions.deny, requiredPermissions)
-
         if (userHasDirectPermission === true) {
             console.log('(USER) User has all required permissions')
             return true
@@ -194,7 +194,7 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
             if( !channel.server ) return false
             missingPermissions = userHasDirectPermission
         } else {
-            console.log(`(USER) User is explicitly denied the following permissions: ${userHasDirectPermission.join(', ')}`)
+            console.log(`(USER) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
             return false
         }
     } else {
@@ -214,7 +214,7 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
         console.log(`(ROLE-1) User is missing the following permissions: ${userHasPermissionByRole.join(', ')}`)
         missingPermissions = userHasPermissionByRole
     } else {
-        console.log(`(ROLE-1) User is explicitly denied the following permissions: ${userHasPermissionByRole.join(', ')}`)
+        console.log(`(ROLE-1) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
     
@@ -227,7 +227,7 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
         console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
         return false
     } else {
-        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
 }
@@ -252,7 +252,7 @@ async function checkServerPermissions(user, serverId, requiredPermissions) {
         console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
         return false
     } else {
-        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
 }

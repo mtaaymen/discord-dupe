@@ -78,7 +78,19 @@ router.post( '/', authJwt, async (req, res) => {
         // initialize channels and roles based on server type
         const { channels, roles } = guildTypes[serverType]
         const channelPromises = channels.map(({ name, position, type }) =>
-            Channel.create({ name, position, type, server: server._id })
+            Channel.create({
+                name,
+                position,
+                type,
+                server: server._id,
+                permissions : {
+                    roles: {
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: everyone_role._id
+                    }
+                } 
+            })
         )
         const channelsDocs = await Promise.all(channelPromises)
         const channelIds = channelsDocs.map((channel) => channel._id)
@@ -125,7 +137,7 @@ router.post( '/', authJwt, async (req, res) => {
             })
             .populate({
                 path: 'channels',
-                select: 'name type topic parent position permissionOverwrites server',
+                select: 'name type topic parent position server',
                 /*populate: {
                     path: 'messages',
                     select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
@@ -134,6 +146,9 @@ router.post( '/', authJwt, async (req, res) => {
                         select: 'content author'
                     }
                 }*/
+            })
+            .populate({
+                path: 'roles'
             })
             .exec()
     
@@ -147,6 +162,8 @@ router.post( '/', authJwt, async (req, res) => {
 // create guild channel
 router.post( '/:guild/channels', authJwt, async (req, res) => {
     try {
+        const { name = 'channel', type = 'text', parent = null } = req?.body || {}
+
         const guildId = req.params.guild
         if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
 
@@ -154,15 +171,33 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
         const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
         if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
 
+        if(parent) {
+            if(!db.mongoose.Types.ObjectId.isValid(parent)) return res.status(400).json({ message: 'Invalid parent id' })
+            const parentExists = await Channel.exists({_id: parent})
+            if(!parentExists) return res.status(400).json({ message: 'Invalid parent channel' })
+        }
+
+        const guild = await Guild.findById( guildId )
+            .populate( 'everyone_role', 'name color' )
+        if( !guild ) return res.status(404).send({ message: 'Channel not found'})
+
         const channelWithBiggestPos = await Channel.findOne().sort('-position').select('position')
-        const nextChannelPos = channelWithBiggestPos.position + 1
+        const nextChannelPos = channelWithBiggestPos ? channelWithBiggestPos.position + 1 : 0
 
         // create a new channel
         const channel = new Channel({
-            name: req?.body?.name || 'channel',
-            type: req?.body?.type || 'text',
+            name,
+            type,
+            parent,
             position: nextChannelPos,
-            server: guildId
+            server: guildId,
+            permissions : {
+                roles: {
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: guild.everyone_role
+                }
+            } 
         })
 
         // save the new channel to the database
@@ -173,7 +208,22 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
             $push: { channels: channel._id }
         })
 
+        const updatesRes = {
+            channel: channel._id.toString(),
+            permission: {
+                type: 0,
+                allow: 70508330735680,
+                deny: 0,
+                id: {
+                    _id: guild.everyone_role._id.toString(),
+                    name: guild.everyone_role.name,
+                    color: guild.everyone_role.color
+                }
+            }
+        }
+
         req.io.to(`guild:${guildId}`).emit('CHANNEL_CREATE', channel)
+        req.io.to(`guild:${guildId}`).emit('PERMISSION_UPDATE', updatesRes)
 
         res.status(201).json( channel )
     } catch (error) {
@@ -239,6 +289,84 @@ router.delete('/:guild', authJwt, async (req, res) => {
             message: `Server "${server.name}" was deleted successfully`,
             guild: server._id
         })
+    } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Internal server error' })
+    }
+})
+
+// update guild
+router.patch('/:guild', authJwt, async (req, res) => {
+    try {
+        const guildId = req.params.guild
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const requiredPermissions = ['MANAGE_GUILD']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to edit server.' })
+
+        const guild = await Guild.findById(guildId)
+        if( !guild ) return res.status(404).send({ message: 'Guild not found'})
+    
+        const fieldMap = {
+            'server-name': 'name',
+            'server-system-channel': 'system_channel_id',
+            'system-channel-welcome-message': 'systemChannelWelcomeMessage',
+            'system-channel-tips': 'systemChannelTips'
+        }
+
+        const updates = {}
+        for (const [key, value] of Object.entries(req.body)) {
+            const field = fieldMap[key]
+            if (field) updates[field] = value
+        }
+
+        let updatedFields = {}
+
+        if( updates.name && updates.name?.length >= 2 || updates.name?.length <= 100 ) {
+            //return res.status(400).send({ message: "Invalid server name.", name: true })
+
+            await Guild.updateOne({_id: guildId}, { name: updates.name })
+            updatedFields.name = updates.name
+        }
+
+        if( updates.system_channel_id !== undefined ) {
+            if(updates.system_channel_id === null) {
+                await Guild.updateOne({_id: guildId}, { system_channel_id: null })
+                updatedFields.system_channel_id = null
+            } else {
+                const system_channel_id = await Channel.exists( {_id: updates.system_channel_id, server: guildId} )
+
+                if( system_channel_id ) {
+                    await Guild.updateOne({_id: guildId}, { system_channel_id: updates.system_channel_id })
+                    updatedFields.system_channel_id = updates.system_channel_id
+                }
+            }
+
+        }
+
+        if( updates.systemChannelTips !== undefined || updates.systemChannelWelcomeMessage !== undefined ) {
+
+            let newTipsFlag = updates.systemChannelTips ?? guild.system_channel_flags.tips
+            let newWelcomeMessagesFlag = updates.systemChannelWelcomeMessage ?? guild.system_channel_flags.welcome_messages
+
+            const newGuild = await Guild.findOneAndUpdate({_id: guildId}, {
+                $set: {
+                    'system_channel_flags.tips': newTipsFlag,
+                    'system_channel_flags.welcome_messages': newWelcomeMessagesFlag,
+                }
+            }, {new: true})
+
+            updatedFields.system_channel_flags = newGuild.system_channel_flags
+        }
+
+        if( Object.keys(updatedFields).length ) {
+            req.io.to(`guild:${guildId}`).emit('GUILD_UPDATE', {updates: updatedFields, guildId})
+            return res.status(200).send(updatedFields)
+        }
+
+        res.status(400).end()
+
     } catch (error) {
         console.error(error)
         res.status(500).send({ message: 'Internal server error' })

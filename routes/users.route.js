@@ -542,9 +542,41 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                     }
                 }*/
             })
+            .populate({
+                path: 'roles'
+            })
             .exec()
 
         res.status(200).send(guilds)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// leave guild
+router.delete( '/@me/guilds/:guildId', authJwt, async (req, res) => {
+    try {
+        const { guildId } = req.params
+        const userId = req.user._id.toString()
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const guild = await Guild.findById(guildId)
+        if(!guild) return res.status(400).json({ message: 'Guild not found' })
+
+        if( guild.owner.toString() === userId ) return res.status(405).json({ message: 'The server owner can not leave' })
+
+        const user = await User.findById(userId)
+
+        guild.members.pull(userId)
+        await guild.save()
+
+        user.guilds.pull(guildId)
+        await user.save()
+
+        req.io.to(`guild:${guildId}`).emit('GUILD_MEMBER_REMOVE', { member: userId, guild: guildId })
+
+        res.status(200).end()
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
@@ -641,18 +673,18 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                         receiverId,
                         userId 
                     ],
-                    permissions: [{
-                        _type: 1,
-                        allow: 70508330735680,
-                        deny: 0,
-                        id: receiverId
-                    },
-                    {
-                        _type: 1,
-                        allow: 70508330735680,
-                        deny: 0,
-                        id: userId
-                    }]
+                    permissions: {
+                        users: [{
+                            allow: 70508330735680,
+                            deny: 0,
+                            id: receiverId
+                        },
+                        {
+                            allow: 70508330735680,
+                            deny: 0,
+                            id: userId
+                        }]
+                    }
                 })
 
                 channelId = newDMChannel._id.toString()
@@ -664,14 +696,27 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                 await receiver.save()
     
                 const populatedDMChannel = await Channel.findById(newDMChannel._id)
-                    .populate({
-                        path: 'messages',
-                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                    })
-
                 const usersRecievedChannel = [userId, receiverId]
-    
+
                 sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+
+                for( const participant of [user, receiver] ) {
+                    const permission = {
+                        channel: newDMChannel._id.toString(),
+                        permission: {
+                            type: 1,
+                            allow: 70508330735680,
+                            deny: 0,
+                            id: {
+                                _id: participant._id.toString(),
+                                username: participant.username,
+                                avatar: participant.avatar
+                            }
+                        }}
+
+                    sendToAllUserIds(req.io, usersRecievedChannel, 'PERMISSION_UPDATE', permission) 
+                }
+
             } else {
                 channelId = dmChannel._id.toString()
                 
@@ -684,10 +729,6 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
     
                 if( usersRecievedChannel.length ) {
                     const populatedDMChannel = await Channel.findById(dmChannel._id)
-                        .populate({
-                            path: 'messages',
-                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                        })
         
                     sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
@@ -698,7 +739,6 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
         const channelParticipants = [userId, ...participants]
         const permissions = participants.map( participant => {
             return {
-                _type: 1,
                 allow: 70508330735680,
                 deny: 0,
                 id: participant
@@ -709,17 +749,22 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
             type: 'dm',
             position: 0,
             participants: channelParticipants,
-            permissions,
+            permissions: {
+                users: permissions
+            },
             owner: userId,
             isGroup: true
         })
 
         let newChannelName = `${user.username}'s Group`
-
+        const populatedParticipants = []
         if( participants.length ) {
             const participantNames = []
             const participantPromises = channelParticipants.map(async participant => {
                 const participantDoc = await User.findById(participant)
+
+                populatedParticipants.push(participantDoc)
+
                 participantNames.push( participantDoc.username )
                 participantDoc.channels.addToSet(newGroupDMChannel._id)
                 return participantDoc.save()
@@ -736,12 +781,27 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
         await user.save()
 
         const populatedGroupDMChannel = await Channel.findById(newGroupDMChannel._id)
-            .populate({
-                path: 'messages',
-                select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-            })
-
         sendToAllUserIds(req.io, channelParticipants, 'CHANNEL_CREATE', populatedGroupDMChannel)
+
+
+        for( const participant of populatedParticipants ) {
+            const permission = {
+                channel: newGroupDMChannel._id.toString(),
+                permission: {
+                    type: 1,
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: {
+                        _id: participant._id.toString(),
+                        username: participant.username,
+                        avatar: participant.avatar
+                    }
+                }}
+
+            sendToAllUserIds(req.io, channelParticipants, 'PERMISSION_UPDATE', permission) 
+        }
+
+        
         res.status(200).json({ message: 'Group DM channel created successfully', channel: newGroupDMChannel._id.toString() })
     } catch (error) {
         console.error(error)
@@ -797,18 +857,18 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
                         userId,
                         senderId
                     ],
-                    permissions: [{
-                        _type: 1,
-                        allow: 70508330735680,
-                        deny: 0,
-                        id: userId
-                    },
-                    {
-                        _type: 1,
-                        allow: 70508330735680,
-                        deny: 0,
-                        id: senderId
-                    }]
+                    permissions: {
+                        users: [{
+                            allow: 70508330735680,
+                            deny: 0,
+                            id: userId
+                        },
+                        {
+                            allow: 70508330735680,
+                            deny: 0,
+                            id: senderId
+                        }]
+                    }
                 })
     
                 user.channels.addToSet(newDMChannel._id)
@@ -946,18 +1006,18 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
                     receiverId,
                     senderId 
                 ],
-                permissions: [{
-                    _type: 1,
-                    allow: 70508330735680,
-                    deny: 0,
-                    id: receiverId
-                },
-                {
-                    _type: 1,
-                    allow: 70508330735680,
-                    deny: 0,
-                    id: senderId
-                }]
+                permissions: {
+                    users: [{
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: receiverId
+                    },
+                    {
+                        allow: 70508330735680,
+                        deny: 0,
+                        id: senderId
+                    }]
+                }
             })
 
             receiver.channels.addToSet(newDMChannel._id)
@@ -967,10 +1027,7 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             await receiver.save()
 
             const populatedDMChannel = await Channel.findById(newDMChannel._id)
-                .populate([{
-                    path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                }])
+
 
             sendToAllUserIds(req.io, addFriendUserIds, 'CHANNEL_CREATE', populatedDMChannel)
         } else {

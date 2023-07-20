@@ -63,43 +63,48 @@ const Channel = mongoose.model(
             type: Boolean,
             default: false
         },
-        permissions: [{
-            allow: {
-                type: Number,
-                default: 0
-            },
-            deny: {
-                type: Number,
-                default: 0
-            },
-            _type: {
-                type: Number,
-                default: 1
-            },
-            id: {
-                type: Schema.Types.ObjectId,
-                ref: 'Role'
-            },
-            position: Number
-        }, {
-            allow: {
-                type: Number,
-                default: 0
-            },
-            deny: {
-                type: Number,
-                default: 0
-            },
-            _type: {
-                type: Number,
-                default: 0
-            },
-            id: {
-                type: Schema.Types.ObjectId,
-                ref: 'User'
-            },
-            position: Number
-        }],
+        permissions: {
+            roles: [{
+                allow: {
+                    type: Number,
+                    default: 0
+                },
+                deny: {
+                    type: Number,
+                    default: 0
+                },
+                _type: {
+                    type: Number,
+                    default: 0,
+                    enum: [0],
+                },
+                id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'Role'
+                },
+                position: Number
+            }],
+            users: [{
+                allow: {
+                    type: Number,
+                    default: 0
+                },
+                deny: {
+                    type: Number,
+                    default: 0
+                },
+                _type: {
+                    type: Number,
+                    default: 1,
+                    enum: [1],
+                },
+                id: {
+                    type: Schema.Types.ObjectId,
+                    ref: 'User'
+                },
+                position: Number
+            }]
+        },
         createdAt: {
             type: Date,
             default: Date.now,

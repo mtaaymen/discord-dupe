@@ -4,6 +4,9 @@ const Schema = mongoose.Schema;
 const Role = mongoose.model(
     "Role",
     new Schema({
+        mentionable: Boolean,
+        hoist: Boolean,
+        description: String,
         name: {
             type: String,
             required: true

@@ -28,7 +28,6 @@ function validatePassword(email, username, password) {
     //const containsSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
     if (!containsLowercase || !containsNumber /*|| !containsSpecialChar*/) return false
     
-    // Password is considered valid if it passes all the above checks
     return true
 }
 
@@ -212,7 +211,14 @@ router.get("/permissions", authJwt, async (req, res) => {
             .select('channels')
             .populate({
                 path: 'channels',
-                select: 'permissions'
+                select: 'permissions',
+                populate: [{
+                    path: 'permissions.users.id',
+                    select: 'username avatar'
+                }, {
+                    path: 'permissions.roles.id',
+                    select: 'name color'
+                }]
             })
 
         const roles = await Role.find({ members: userId })
@@ -220,13 +226,54 @@ router.get("/permissions", authJwt, async (req, res) => {
 
         const dmChannels = await Channel.find({ participants: userId })
             .select('permissions')
+            .populate([{
+                path: 'permissions.users.id',
+                select: 'username avatar'
+            }, {
+                path: 'permissions.roles.id',
+                select: 'name color'
+            }])
+            
 
         const channelPermissions = [
             ...guilds.flatMap( g => {
                 return g.channels.map( c => {
                     return {
                         _id: c._id,
-                        permissions: c.permissions.map( p => {
+                        permissions: [
+                            ...c.permissions.users.map( p => {
+                                return {
+                                    allow: p.allow,
+                                    deny: p.deny,
+                                    type: p._type,
+                                    id: p.id
+                                }
+                            } ),
+                            ...c.permissions.roles.map( p => {
+                                return {
+                                    allow: p.allow,
+                                    deny: p.deny,
+                                    type: p._type,
+                                    id: p.id
+                                }
+                            } )
+                        ]
+                    }
+                } )
+            }),
+            ...dmChannels.map( c => {
+                return {
+                    _id: c._id,
+                    permissions: [
+                        ...c.permissions.users.map( p => {
+                            return {
+                                allow: p.allow,
+                                deny: p.deny,
+                                type: p._type,
+                                id: p.id
+                            }
+                        } ),
+                        ...c.permissions.roles.map( p => {
                             return {
                                 allow: p.allow,
                                 deny: p.deny,
@@ -234,20 +281,7 @@ router.get("/permissions", authJwt, async (req, res) => {
                                 id: p.id
                             }
                         } )
-                    }
-                } )
-            }),
-            ...dmChannels.map( c => {
-                return {
-                    _id: c._id,
-                    permissions: c.permissions.map( p => {
-                        return {
-                            allow: p.allow,
-                            deny: p.deny,
-                            type: p._type,
-                            id: p.id
-                        }
-                    } )
+                    ]
                 }
             } ),
         ]

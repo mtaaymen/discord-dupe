@@ -35,6 +35,12 @@ db.mongoose
     .then(async () => {
         console.log("Successfully connected to MongoDB.")
         try {
+
+            /*const allGrpChannels = await Channel.find({isGroup: true})
+            for( const channel of allGrpChannels ) {
+                await Channel.findByIdAndRemove(channel._id)
+                console.log(channel._id, 'removed')
+            }*/
             const allUsers = await User.find({}).select('uid username')
             for( const user of allUsers ) {
 
@@ -96,6 +102,7 @@ const guildsRoute = require( './routes/guilds.route' )
 const channelsRoute = require( './routes/channels.route' )
 const authRoute = require('./routes/auth.route')
 const invitesRoute = require('./routes/invites.route')
+const Channel = require('./models/channel.model')
 
 app.use( '/avatar', avatarRoute )
 app.use( '/users', usersRoute )
