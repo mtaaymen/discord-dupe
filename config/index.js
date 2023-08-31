@@ -7,5 +7,7 @@ module.exports = {
     CLIENT_URL: "https://discord-dupe.netlify.app",
     PORT: 3001,
     SOCKET_SECRET: "Logiciel-Secret",
-    SOCKET_ALGORITHM: 'aes-256-cbc'
+    SOCKET_ALGORITHM: 'aes-256-cbc',
+    //WEB3_PROVIDER: 'https://mainnet.infura.io/v3/0ec1ab3de0db4c6fb8a53274ab378382'
+    WEB3_PROVIDER: 'HTTP://127.0.0.1:7545'
 }

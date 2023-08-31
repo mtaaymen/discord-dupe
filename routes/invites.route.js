@@ -57,14 +57,14 @@ router.post('/:code', authJwt, async (req, res) => {
         if (!invite) return res.status(404).json({ message: 'Invite not found' })
         
         // Check if user is already a member of the guild
-        if (invite.guild.members.includes(req.user._id)) return res.status(403).json({ message: 'You are already a member of this guild' })
+        if (invite.guild.members.includes(userId)) return res.status(403).json({ message: 'You are already a member of this guild' })
         
     
         // Add user to members array of the guild
-        await Guild.updateOne({ _id: invite.guild._id }, { $push: { members: req.user._id } })
+        await Guild.updateOne({ _id: invite.guild._id }, { $push: { members: userId } })
 
         // add user to everone role of the guild
-        await Role.updateOne({ _id: invite.guild.everyone_role }, { $push: { members: req.user._id } })
+        await Role.updateOne({ _id: invite.guild.everyone_role }, { $push: { members: userId } })
 
         // add server to user servers
         user.guilds.addToSet(invite.guild._id)
@@ -80,7 +80,7 @@ router.post('/:code', authJwt, async (req, res) => {
             await invite.save()
         }
 
-        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: req.user._id, guild: invite.guild._id })
+        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: userId, guild: invite.guild._id })
 
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({

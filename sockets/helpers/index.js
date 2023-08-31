@@ -23,6 +23,7 @@ async function onlineStatus(socket, userId, status, custom) {
 
 function sendToAllUserIds(io, userIds = [], event, data) {
     io.sockets.sockets.forEach( socket => {
+        console.log(socket.decoded.userId)
         if (socket.decoded && userIds.includes(socket.decoded.userId)) {
             socket.emit(event, data)
         }

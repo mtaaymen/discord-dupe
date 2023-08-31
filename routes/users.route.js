@@ -7,6 +7,7 @@ const QRCode = require('qrcode')
 
 const { authJwt } = require('../middlewares')
 const { sendToAllUserIds } = require('../sockets/helpers')
+const { checkUserPerk } = require('../services')
 
 const config = require('../config')
 const db = require("../models")
@@ -14,6 +15,7 @@ const Channel = db.channel
 const User = db.user
 const Guild = db.guild
 const Avatar = db.avatar
+const GuildUserProfiles = db.guildUserProfiles
 
 function validateRGBPattern(rgbString) {
     const pattern = /^(rgb|rgba)\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})(,\s*(\d+(\.\d+)?))?\)$/
@@ -309,6 +311,9 @@ router.patch( '/@me', authJwt, async (req, res) => {
             const isMatch = await bcrypt.compare(updates.password, user.password)
             if( !isMatch ) return res.status(400).send({ message: "Password does not match.", password: true })
 
+            const canChangeUsername = await checkUserPerk(userId, 'CHANGE_USERNAME')
+            if( !canChangeUsername ) return res.status(400).send({ message: "You need to unlock the perk to change your username.", username: true })
+
             await User.updateOne({_id: userId}, { username: updates.username })
 
             req.io.emit("USER_UPDATE", {
@@ -387,11 +392,15 @@ router.put('/:accountId/reputations', authJwt, async (req, res) => {
         const { accountId } = req.params
         const userId = req.user._id.toString()
 
-        if( userId === accountId ) return res.status(404).json({ message: "You can't add reputution to yourself" })
+        if( userId === accountId ) return res.status(404).json({ message: "You can't give reputution to yourself" })
 
         if (!db.mongoose.Types.ObjectId.isValid(accountId)) return res.status(400).json({ message: 'Invalid account id' })
         const account = await User.findById(accountId)
         if(!account) return res.status(404).json({ message: 'Account not found' })
+
+        const canGiveReps = await checkUserPerk(userId, 'REPUTATION_ABILITY')
+        if( !canGiveReps ) return res.status(400).send({ message: "You need to unlock the perk to give reputations." })
+
         const user = await User.findById(userId)
 
         if( !account.reputations.find( r => r.user?.toString() === userId ) && user.givenReputations.includes( accountId ) ) {
@@ -478,10 +487,16 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
     try {
         const userId = req.user._id.toString()
         const { profileId } = req.params
-        const { with_mutual_guilds, with_mutual_friends_count } = req.query
+        const { with_mutual_guilds, with_mutual_friends_count, guild_id } = req.query
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
-        const profile = await User.findById(profileId).select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
+        const profile = await User.findById(profileId)
+            .select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
+            .populate({
+                path: 'badges',
+                select: 'icon id description',
+            })
+
         if(!profile) return res.status(404).json({ message: 'Profile not found' })
 
         if( profile.customStatus.status ) profile.status = profile.customStatus.status
@@ -504,6 +519,16 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
 
             result.mutual_friends = mutual_friends.map( mf => mf._id )
             result.mutual_friends_count = mutual_friends.length
+        }
+        if( guild_id && db.mongoose.Types.ObjectId.isValid(guild_id) ) {
+            let guildMember = await GuildUserProfiles.findOne( { guild: guild_id, user: profileId } )
+
+            if(!guildMember) guildMember = await GuildUserProfiles.create( {
+                guild: guild_id,
+                user: profileId
+            } )
+
+            result.guild_member = guildMember
         }
 
         res.status(200).json(result)
@@ -593,7 +618,6 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
                 { path: 'guilds', select: 'members' },
                 { path: 'channels', select: 'participants' }
             ])
-            .lean()
             .exec()
 
 
@@ -612,6 +636,10 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
 
         const globalUsers = await User.find({ _id: { $in: userIds } })
             .select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
+            .populate({
+                path: 'badges',
+                select: 'icon id description',
+            })
 
         for( const globalUser of globalUsers ) {
             if( globalUser.customStatus.status ) {

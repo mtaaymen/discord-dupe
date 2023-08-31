@@ -4,6 +4,10 @@ const Schema = mongoose.Schema;
 const User = mongoose.model(
     "User",
     new Schema({
+        badges: [{
+            type: Schema.Types.ObjectId,
+            ref: 'Badges',
+        }],
         username: {
             type: String,
             required: true,

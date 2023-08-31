@@ -13,6 +13,10 @@ const authJwt = async (req, res, next) => {
                 path: 'channels',
                 select: 'owner name last_message_id lastTimestamp isGroup participants permissions type server',
             })
+            .populate({
+                path: 'badges',
+                select: 'icon id description',
+            })
 
         if( !user.channels ) {
             user.channels = []

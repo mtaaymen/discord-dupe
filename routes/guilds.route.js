@@ -7,6 +7,7 @@ const { unsubscribeAllUsers } = require('../sockets/helpers')
 
 const db = require("../models")
 const Guild = db.guild
+const GuildUserProfiles = db.guildUserProfiles
 const User = db.user
 const Channel = db.channel
 const Role = db.role
@@ -232,6 +233,19 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
     }
 } )
 
+// get all guild member profiles
+router.get('/members', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const user = await User.findById(userId)
+        const allUserProfiles = await GuildUserProfiles.find({ guild: { $in: user.guilds } })
+        res.status(200).json( allUserProfiles )
+    } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Internal server error' })
+    }
+})
+
 // get guild
 router.get( '/:guild', authJwt, async (req, res) => {
     try {
@@ -381,5 +395,50 @@ router.get( '/:guild/channels', authJwt, (req, res) => {
         } )
         .catch( err => res.status(500).send( { message: err } ) )
 } )
+
+// update current guild member
+router.patch('/:guildId/members/@me', authJwt, async (req, res) => {
+    try {
+        const userId = req.user._id.toString()
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const requiredPermissions = ['CHANGE_NICKNAME']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to change nickname.' })
+
+        const guildMember = await GuildUserProfiles.findOne({ guild: guildId, user: userId })
+        if( !guildMember ) return res.status(404).send({ message: 'Guild member not found'})
+    
+        const fieldMap = {
+            'server-nickname': 'nick'
+        }
+
+        const updates = {}
+        for (const [key, value] of Object.entries(req.body)) {
+            const field = fieldMap[key]
+            if (field) updates[field] = value
+        }
+
+        let updatedFields = {}
+
+        if( typeof updates.nick === 'string' && (updates.nick?.length === 0) || (updates.nick?.length >= 2 && updates.nick?.length <= 32) ) {
+            guildMember.nick = updates.nick
+            await guildMember.save()
+            updatedFields.nick = updates.nick
+        }
+
+        if( Object.keys(updatedFields).length ) {
+            req.io.to(`guild:${guildId}`).emit('GUILD_MEMBER_UPDATE', {updates: updatedFields, guildId, memberId: userId})
+            return res.status(200).send(updatedFields)
+        }
+
+        res.status(400).end()
+
+    } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Internal server error' })
+    }
+})
 
 module.exports = router

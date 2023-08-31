@@ -7,6 +7,10 @@ const bodyParser = require('body-parser')
 const cookieParser = require( 'cookie-parser' )
 const db = require("./models")
 const config = require('./config')
+const { checkTransactionStatus } = require('./services')
+
+
+
 
 const encrypt = require('socket.io-encrypt')
 const encryptionOpts = {
@@ -24,6 +28,8 @@ const io = require('socket.io')(httpServer, {
 
 
 const User = db.user
+const Subscriptions = db.subscriptions
+const Badges = db.badges
 
 db.mongoose.set('strictQuery', false)
 
@@ -35,6 +41,31 @@ db.mongoose
     .then(async () => {
         console.log("Successfully connected to MongoDB.")
         try {
+
+            /*const vipBadge = await Badges.create({
+                icon: 'VIP-badge',
+                id: 'VIP',
+                description: 'VIP Subscription'
+            })
+
+            console.log(vipBadge)
+
+            const subscription = await Subscriptions.create({
+                currency: 'US',
+                currencyTag: '$',
+                price: 50,
+                tier: 4,
+                tag: 'VIP',
+                plans: [
+                    {
+                        title: 'Monthly',
+                        monthlySub: true,
+                        price: 50
+                    }
+                ]
+            })
+
+            console.log(subscription)*/
 
             /*const allGrpChannels = await Channel.find({isGroup: true})
             for( const channel of allGrpChannels ) {
@@ -102,7 +133,7 @@ const guildsRoute = require( './routes/guilds.route' )
 const channelsRoute = require( './routes/channels.route' )
 const authRoute = require('./routes/auth.route')
 const invitesRoute = require('./routes/invites.route')
-const Channel = require('./models/channel.model')
+const storeRoute = require('./routes/store.route')
 
 app.use( '/avatar', avatarRoute )
 app.use( '/users', usersRoute )
@@ -110,9 +141,13 @@ app.use( '/guilds', guildsRoute )
 app.use( '/channels', channelsRoute )
 app.use( '/auth', authRoute )
 app.use( '/invites', invitesRoute )
+app.use( '/store', storeRoute )
 
 
 io.on('connection', socketEvents(io))
+
+//eth transactions checker
+global.transactionsInterval = setInterval(checkTransactionStatus, 5000, io)
 
 httpServer.listen( config.PORT, () => {
     console.log(`Listening on port ${config.PORT}`)

@@ -36,6 +36,11 @@ db.channel = require("./channel.model")
 db.message = require("./message.model")
 db.role = require("./role.model")
 db.invite = require("./invite.model")
+db.transactionsQueue = require("./transactionsQueue.model")
+db.subscriptions = require("./subscriptions.model")
+db.userSubscriptions = require("./userSubscriptions.model")
+db.badges = require("./badges.model")
+db.guildUserProfiles = require("./guildUserProfiles.model")
 //db.avatar = require("./avatar.model")
 
 module.exports = db
