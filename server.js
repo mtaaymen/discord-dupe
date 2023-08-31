@@ -12,7 +12,7 @@ const { checkTransactionStatus } = require('./services')
 
 
 
-const encrypt = require('socket.io-encrypt')
+//const encrypt = require('socket.io-encrypt')
 const encryptionOpts = {
     secret: config.SOCKET_SECRET,
     algorithm: config.SOCKET_ALGORITHM
