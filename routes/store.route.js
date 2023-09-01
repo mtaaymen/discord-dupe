@@ -77,9 +77,8 @@ router.get( '/subscriptions', authJwt, async ( req, res ) => {
 } )
 
 router.post( '/completeTransaction', authJwt, async ( req, res ) => {
-    const productPriceUSD = 50
-    //const recieverAddress = "0xea66C3B97eA6d31d9E3EE036fC919E0607f0562b"
-    const recieverAddress = "0xc7b6692256bf5a7308e6D6A69B90a790C1fA0A05"
+    const recieverAddress = "0xea66C3B97eA6d31d9E3EE036fC919E0607f0562b"
+    //const recieverAddress = "0xc7b6692256bf5a7308e6D6A69B90a790C1fA0A05"
 
     try {
         const userId = req.user._id.toString()
