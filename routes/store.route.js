@@ -4,19 +4,6 @@ const { checkTransactionStatus, getExchangeRate } = require('../services')
 
 const web3 = new Web3(new Web3.providers.HttpProvider(config.WEB3_PROVIDER))
 
-//console.log( web3.eth.accounts.wallet.create(2) )
-
-const walletsTest = [
-    {
-        address: '0xea66C3B97eA6d31d9E3EE036fC919E0607f0562b',
-        privateKey: '0xe74fa99a92ed9e59c88b33db3966365e8bc1546428ca360189a7ed6adc18847f'
-    },
-    {
-        address: '0x7a2e85a54E13f5F15A1F49945c836f290d7f05AA',
-        privateKey: '0x0261d15a6f83bf61d82975b4e5f0c420cde12df12ca7fbc8d076cde998e4edbf'
-    }
-]
-
 const express = require('express')
 const router = express.Router()
 
