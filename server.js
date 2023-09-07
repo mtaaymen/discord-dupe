@@ -147,7 +147,7 @@ app.use( '/store', storeRoute )
 io.on('connection', socketEvents(io))
 
 //eth transactions checker
-global.transactionsInterval = setInterval(checkTransactionStatus, 5000, io)
+setInterval(checkTransactionStatus, 5000, io)
 
 httpServer.listen( config.PORT, () => {
     console.log(`Listening on port ${config.PORT}`)

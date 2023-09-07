@@ -12,12 +12,16 @@ const TransactionsQueue = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'User'
         },
-        transactionHash: String,
         subscriptionId: {
             type: Schema.Types.ObjectId,
             ref: 'Subscriptions'
         },
         plan: Number,
+        currency: String,
+        amount: Number,
+        sentAmount: Number,
+        address: String,
+        privateKey: String,
         createdAt: {
             type: Date,
             default: Date.now,

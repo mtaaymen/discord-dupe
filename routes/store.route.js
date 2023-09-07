@@ -1,6 +1,6 @@
 const { Web3 } = require('web3')
 const config = require('../config')
-const { checkTransactionStatus } = require('../services')
+const { checkTransactionStatus, getExchangeRate } = require('../services')
 
 const web3 = new Web3(new Web3.providers.HttpProvider(config.WEB3_PROVIDER))
 
@@ -46,25 +46,6 @@ const UserSubscriptions = db.userSubscriptions
 ]*/
 
 
-function getExchangeRate() {
-    return new Promise( async ( resolve, reject ) => {
-        try {
-            const data = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
-                .then( res => res.json() )
-
-            const usdToEthRate = data?.ethereum?.usd
-            if( !usdToEthRate ) return reject(null)
-
-            resolve( usdToEthRate )
-            console.log(`Current ETH/USD exchange rate: 1 ETH = $${usdToEthRate}`)
-        } catch (error) {
-            reject(null)
-            console.error('Error fetching exchange rates:', error.message)
-        }
-    })
-}
-
-
 router.get( '/subscriptions', authJwt, async ( req, res ) => {
     try {
         const subscriptionsList = await Subscriptions.find({})
@@ -76,15 +57,10 @@ router.get( '/subscriptions', authJwt, async ( req, res ) => {
     }
 } )
 
-router.post( '/completeTransaction', authJwt, async ( req, res ) => {
-    const recieverAddress = "0xea66C3B97eA6d31d9E3EE036fC919E0607f0562b"
-    //const recieverAddress = "0xc7b6692256bf5a7308e6D6A69B90a790C1fA0A05"
-
+router.post( '/requestWallet', authJwt, async ( req, res ) => {
     try {
         const userId = req.user._id.toString()
         const {
-            address,
-            privateKey,
             subscriptionId,
             plan,
             paymentType
@@ -100,82 +76,77 @@ router.post( '/completeTransaction', authJwt, async ( req, res ) => {
 
         const alreadySubbed = await UserSubscriptions.findOne({user: userId, subscription: subscriptionId})
         if( alreadySubbed && alreadySubbed.plan === plan ) return res.status(404).send({ message: 'User is already subscribed to this plan.'})
-        
 
-        if (!web3.utils.isAddress(address)) return res.status(400).send({ address: 'Invalid address.' })
+        const pendingWallet = await TransactionsQueue.findOne({
+            status: 'pending',
+            user: userId,
+            subscriptionId: subscriptionId,
+            plan: plan
+        })
+
+        if( pendingWallet ) {
+            const responseData = {
+                address: pendingWallet.address,
+                amount: pendingWallet.amount,
+                sessionStart: pendingWallet.createdAt
+            }
+
+            return res.status( 200 ).send(responseData)
+        }
+
+        const wallets = web3.eth.accounts.wallet.create(1)
+        const wallet = wallets[0]
 
         const usdToEthExchangeRate = await getExchangeRate()
+        const ethAmount = (subscription.plans[Number(plan)].price / usdToEthExchangeRate).toFixed(6)
 
-        const weiSenderBalance = await web3.eth.getBalance(address)
-        const ethSenderBalance = web3.utils.fromWei(weiSenderBalance, 'ether')
+        const newTransactionQueue = await TransactionsQueue.create({
+            address: wallet.address,
+            privateKey: wallet.privateKey,
+            user: userId,
+            subscriptionId: subscriptionId,
+            plan: plan,
+            currency: paymentType.name,
+            amount: ethAmount
+        })
 
-        const ethAmount = subscription.plans[Number(plan)].price / usdToEthExchangeRate
+        const responseData = {
+            address: wallet.address,
+            amount: ethAmount,
+            sessionStart: newTransactionQueue.createdAt
+        }
+
+
+        res.status( 200 ).send(responseData)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+router.post( '/testTransaction', authJwt, async ( req, res ) => {
+    try {
+        /*const { recieverAddress, address, amount, privateKey } = req.body
 
         const gasPrice = await web3.eth.getGasPrice()
-
-        console.log("senderBalance:", ethSenderBalance, '<', "ethAmount:", ethAmount)
-        if (ethSenderBalance < ethAmount) return res.status(400).json({ message: 'Insufficient balance to complete transaction.' })
 
         const nonce = await web3.eth.getTransactionCount(address, 'pending')
 
         const transactionObject = {
             nonce: nonce,
             to: recieverAddress,
-            value: web3.utils.toWei(ethAmount.toString(), 'ether'),
+            value: web3.utils.toWei(amount.toString(), 'ether'),
             gas: 21000,
             gasPrice: gasPrice.toString(),
         }
 
         const senderWallet = web3.eth.accounts.privateKeyToAccount(privateKey)
-
-        if( !address || address !== senderWallet.address ) return res.status(400).json({ message: "Private key doesn't match." })
-
         const signedTransaction = await senderWallet.signTransaction(transactionObject)
         const txHash = await web3.eth.sendSignedTransaction(signedTransaction.rawTransaction)
 
-        const txId = web3.utils.sha3( `${txHash.from}-${txHash.to}-${txHash.value}-${txHash.gas}` )
+        console.log(txHash)*/
 
-        if( txHash?.status ) {
-
-            await TransactionsQueue.create({
-                transactionHash: txHash.transactionHash,
-                user: userId,
-                subscriptionId: subscriptionId,
-                plan: plan,
-                status: 'confirmed'
-            })
-
-            await UserSubscriptions.create({
-                user: userId,
-                subscription: subscriptionId,
-                plan: plan
-            })
-
-            await User.findOneAndUpdate( {_id: userId}, { $addToSet: { badges: subscription.badge } } )
-
-            return res.status( 200 ).send({
-                status: 'confirmed',
-                transactionID: txId
-            })
-        }
-
-
-        await TransactionsQueue.create({
-            transactionHash: txHash.transactionHash,
-            user: userId,
-            subscriptionId: subscriptionId,
-            plan: plan
-        })
-
-        if (!global.transactionsInterval) {
-            // Start the background process if not already running
-            global.transactionsInterval = setInterval(checkTransactionStatus, 5000, req.io)
-        }
-
-        res.status( 200 ).send({
-            status: 'pending',
-            transactionID: txId
-        })
+        res.status( 200 ).send('done')
     } catch (error) {
         console.error(error)
         return res.status(500).json({ message: 'Internal server error' })
