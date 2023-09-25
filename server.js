@@ -134,6 +134,7 @@ const channelsRoute = require( './routes/channels.route' )
 const authRoute = require('./routes/auth.route')
 const invitesRoute = require('./routes/invites.route')
 const storeRoute = require('./routes/store.route')
+const adminRoute = require('./routes/admin.route')
 
 app.use( '/avatar', avatarRoute )
 app.use( '/users', usersRoute )
@@ -142,6 +143,7 @@ app.use( '/channels', channelsRoute )
 app.use( '/auth', authRoute )
 app.use( '/invites', invitesRoute )
 app.use( '/store', storeRoute )
+app.use( '/admin', adminRoute )
 
 
 io.on('connection', socketEvents(io))

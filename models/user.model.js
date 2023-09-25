@@ -4,6 +4,11 @@ const Schema = mongoose.Schema;
 const User = mongoose.model(
     "User",
     new Schema({
+        adminAccess: {
+            type: Number,
+            enum: [0, 1, 2],
+            default: 0
+        },
         badges: [{
             type: Schema.Types.ObjectId,
             ref: 'Badges',

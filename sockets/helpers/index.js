@@ -1,6 +1,15 @@
 const db = require('../../models')
 const User = db.user
 
+async function adminAccess(socket, userId) {
+    const user = await User.findById(userId)
+        .select('adminAccess')
+
+    if(user.adminAccess !== 1 && user.adminAccess !== 2) return
+
+    socket.emit('ADMIN_ACCESS', {access: user.adminAccess})
+}
+
 async function onlineStatus(socket, userId, status, custom) {
     try {
         const update = custom
@@ -93,5 +102,6 @@ module.exports = {
     joinRooms,
     leaveRooms,
     onlineStatus,
-    sendToAllUserIds
+    sendToAllUserIds,
+    adminAccess
 }

@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken')
 const config = require('../config')
-const { joinRooms, leaveRooms, onlineStatus } = require('./helpers')
+const { joinRooms, leaveRooms, onlineStatus, adminAccess } = require('./helpers')
 
 module.exports = (io) => {
     return ( socket ) => {
@@ -17,6 +17,7 @@ module.exports = (io) => {
                     socket.decoded = decoded
                     
                     onlineStatus( socket, decoded.userId, "online" )
+                    adminAccess( socket, decoded.userId )
                 }
             })
         })

@@ -488,6 +488,7 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         const userId = req.user._id.toString()
         const { profileId } = req.params
         const { with_mutual_guilds, with_mutual_friends_count, guild_id } = req.query
+
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
         const profile = await User.findById(profileId)
@@ -505,14 +506,14 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
             user: profile,
         }
 
-        if( with_mutual_guilds ) {
+        if( with_mutual_guilds === 'true' ) {
             mutual_guilds = await Guild.find( {
                 members: { $all: [userId, profileId] }
             } ).select('_id')
 
             result.mutual_guilds = mutual_guilds
         }
-        if( with_mutual_friends_count ) {
+        if( with_mutual_friends_count === 'true' ) {
             const mutual_friends = await User.find({
                 friends: { $all: [userId, profileId] }
             }).select('_id')

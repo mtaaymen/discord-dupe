@@ -20,54 +20,58 @@ const Subscriptions = db.subscriptions
 //console.log( web3.eth.accounts.wallet.create(1) )
 
 async function checkTransactionStatus(io) {
-  const pendingTransactions = await TransactionsQueue.find({ status: 'pending' })
+  try {
+    const pendingTransactions = await TransactionsQueue.find({ status: 'pending' })
 
-  for (const transaction of pendingTransactions) {
-    const walletBalance = await web3.eth.getBalance(transaction.address)
-    const ethWalletBalance = web3.utils.fromWei(walletBalance, 'ether')
+    for (const transaction of pendingTransactions) {
+      const walletBalance = await web3.eth.getBalance(transaction.address)
+      const ethWalletBalance = web3.utils.fromWei(walletBalance, 'ether')
 
-    if( ethWalletBalance >= transaction.amount ) {
-      const alreadySubbed = await UserSubscriptions.findOne({user: transaction.user, subscription: transaction.subscriptionId})
+      if( ethWalletBalance >= transaction.amount ) {
+        const alreadySubbed = await UserSubscriptions.findOne({user: transaction.user, subscription: transaction.subscriptionId})
 
-      if( alreadySubbed ) {
+        if( alreadySubbed ) {
 
-        transaction.status = 'acquired'
-        await transaction.save()
+          transaction.status = 'acquired'
+          await transaction.save()
 
-      } else {
+        } else {
 
-        await UserSubscriptions.create({
-          user: transaction.user,
-          subscription: transaction.subscriptionId,
-          plan: transaction.plan
-        })
-  
-        const subDoc = await Subscriptions.findById(transaction.subscriptionId)
-  
-        await User.findOneAndUpdate( {_id: transaction.user}, { $addToSet: { badges: subDoc.badge } } )
-  
-        const socketData = {
-          selectedSub: subDoc,
-          reciept: {
-            status: 'confirmed',
-            transactionID: transaction._id
+          await UserSubscriptions.create({
+            user: transaction.user,
+            subscription: transaction.subscriptionId,
+            plan: transaction.plan
+          })
+    
+          const subDoc = await Subscriptions.findById(transaction.subscriptionId)
+    
+          await User.findOneAndUpdate( {_id: transaction.user}, { $addToSet: { badges: subDoc.badge } } )
+    
+          const socketData = {
+            selectedSub: subDoc,
+            reciept: {
+              status: 'confirmed',
+              transactionID: transaction._id
+            }
           }
-        }
-  
-        sendToAllUserIds(io, [transaction.user.toString()], 'TX_CONFIRMED', socketData)
-  
-        transaction.sentAmount = ethWalletBalance
-        transaction.status = 'confirmed'
-        await transaction.save()
+    
+          sendToAllUserIds(io, [transaction.user.toString()], 'TX_CONFIRMED', socketData)
+    
+          transaction.sentAmount = ethWalletBalance
+          transaction.status = 'confirmed'
+          await transaction.save()
 
+        }
+
+
+      } else if ( (Date.now() - new Date(transaction.createdAt).getTime()) > 3600000 ) {
+        transaction.status = 'expired'
+        await transaction.save()
       }
 
-
-    } else if ( (Date.now() - new Date(transaction.createdAt).getTime()) > 3600000 ) {
-      transaction.status = 'expired'
-      await transaction.save()
     }
-
+  } catch( err ) {
+    console.error(err)
   }
 }
 

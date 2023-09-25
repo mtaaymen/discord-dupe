@@ -49,9 +49,11 @@ const guildTypes = {
 // create guild
 router.post( '/', authJwt, async (req, res) => {
     try {
-        const { name, type } = req.body
+        let { name, type } = req.body
         const userId = req.user._id.toString()
         const user = await User.findById(userId)
+
+        if( !String(name).trim().length ) name = `${user.username}'s server`
     
         // determine server type
         let serverType = type

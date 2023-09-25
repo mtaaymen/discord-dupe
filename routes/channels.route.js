@@ -346,7 +346,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
         const user = await User.findById(userId)
         const channel = await Channel.findById(channelId)
 
-        if( !channel.server ) {
+        if( !channel?.server ) {
             if( channel.isGroup ) {
                 if( !channel.participants.includes( userId ) ) return res.status(404).json({ message: "User not in channel" })
 
@@ -444,7 +444,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
         await Message.deleteMany({ server: guildId })
 
         // remove the channel ID from the server's channels array
-        await server.updateOne(guildId, {
+        await Guild.findByIdAndUpdate(guildId, {
             $pull: { channels: channelId }
         })
 
