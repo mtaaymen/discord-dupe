@@ -5,7 +5,7 @@ async function adminAccess(socket, userId) {
     const user = await User.findById(userId)
         .select('adminAccess')
 
-    if(user.adminAccess !== 1 && user.adminAccess !== 2) return
+    if(user.adminAccess !== 1 && user.adminAccess !== 2) return socket.emit('NO_ADMIN_ACCESS', true)
 
     socket.emit('ADMIN_ACCESS', {access: user.adminAccess})
 }
