@@ -253,11 +253,18 @@ router.get('/servers', authJwt, checkAdmin, async (req, res) => {
 
         const guilds = await Guild.find({}, projection)
   
-        const newGuildArr = guilds.map( guild => ({
-            ...guild.toObject(),
-            members_count: guild.members?.length,
-            channels_count: guild.channels?.length,
-            icon_data: (() => {
+        const newGuildArr = []
+
+        for( const guild of guilds ) {
+            const newGuild = {
+                ...guild.toObject(),
+                channels_count: guild.channels?.length, 
+            }
+
+            const members_count = await GuildUserProfiles.countDocuments({ guild: guild._id })
+            newGuild.members_count = members_count
+            
+            newGuild.icon_data = (() => {
                 const iconExists = fs.existsSync(`./public/server-icons/${guild.icon}.svg`)
                 if( iconExists ) {
                     const filePath = `./public/server-icons/${guild.icon}.svg`
@@ -265,7 +272,10 @@ router.get('/servers', authJwt, checkAdmin, async (req, res) => {
                     return fileData
                 } else return null
             })()
-        }))
+
+            newGuildArr.push(newGuild)
+        }
+
   
         res.status(200).send(newGuildArr)
     } catch (error) {
