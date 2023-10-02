@@ -7,12 +7,16 @@ const path = require('path')
 const { authJwt, checkAdmin } = require('../middlewares')
 const config = require('../config')
 const db = require("../models")
+const { sendToAllUserIds, unsubscribeAllUsers } = require('../sockets/helpers')
+const GuildUserProfiles = require('../models/guildUserProfiles.model')
 
 const Guild = db.guild
 const Channel = db.channel
 const User = db.user
 const Role = db.role
 const Invite = db.invite
+const Message = db.message
+const TransactionsQueue = db.transactionsQueue
 
 const guildTypes = {
     1: {
@@ -69,9 +73,14 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
         const server = await Guild.create({
             name,
             owner: userId,
-            members: [userId],
             icon
         })
+
+        // create member doc for owner
+        const ownerGuildMember = await GuildUserProfiles.create( {
+            guild: server._id,
+            user: userId
+        } )
 
         // create everyone role
         const everyone_role = await Role.create({
@@ -98,9 +107,20 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
                     }
                 } 
             })
+            
         )
-
         const channelsDocs = await Promise.all(channelPromises)
+
+
+        let currentParent = null
+        for( const channelDoc of channelsDocs ) {
+            if( channelDoc.type === 'category' ) currentParent = channelDoc._id
+            if( channelDoc.type === 'text' && currentParent !== null ) {
+                channelDoc.parent = currentParent
+                await channelDoc.save()
+            }
+
+        }
         const channelIds = channelsDocs.map((channel) => channel._id)
     
         const rolePromises = roles.map(({ name, permissions, color }) =>
@@ -177,6 +197,37 @@ router.patch('/servers/:guildId', authJwt, checkAdmin, async (req, res) => {
     }
 })
 
+// delete admin guild
+router.delete('/servers/:guildId', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+    
+        // delete channels and roles related to the server
+        await Channel.deleteMany({ server: guildId })
+        await Role.deleteMany({ server: guildId })
+        await Invite.deleteMany({ server: guildId })
+        await Message.deleteMany({ server: guildId })
+        await GuildUserProfiles.deleteMany({ guild: guildId })
+    
+        // delete server
+        const server = await Guild.findByIdAndDelete(guildId)
+    
+
+        req.io.to(`guild:${server._id}`).emit('GUILD_DELETE', { guild: server._id })
+        sendToAllUserIds( req.io, [req.user._id.toString()], 'GUILD_DELETE', { guild: server._id } )
+        unsubscribeAllUsers( req.io, 'guild', server._id.toString() )
+
+        res.status(200).send({
+            message: `Server "${server.name}" was deleted successfully`,
+            guild: server._id
+        })
+    } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Internal server error' })
+    }
+})
+
 // get all servers
 router.get('/servers', authJwt, checkAdmin, async (req, res) => {
     try {
@@ -222,6 +273,8 @@ router.get('/servers', authJwt, checkAdmin, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 })
+
+
 
 // get server with id
 router.get('/servers/:serverId', authJwt, checkAdmin, async (req, res) => {
@@ -271,6 +324,35 @@ router.get('/servers/:serverId', authJwt, checkAdmin, async (req, res) => {
     }
 })
 
+
+// get server members
+router.get('/servers/:serverId/members', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const serverId = req.params.serverId
+        if (!db.mongoose.Types.ObjectId.isValid(serverId)) return res.status(400).json({ message: 'Invalid server id' })
+
+        const guildMembers = await GuildUserProfiles.find( { guild: serverId, present: true } )
+            .populate('user', 'username avatar')
+            .exec()
+
+        const guildMembersWithRoles = []
+        for(const member of guildMembers) {
+            const memberRoles = await Role.find({server: serverId, members: member._id})
+
+            guildMembersWithRoles.push({
+                ...member.toObject(),
+                roles: memberRoles
+            })
+        }
+
+  
+        res.status(200).send(guildMembersWithRoles)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 // get all server icons
 router.get('/server-icons', authJwt, checkAdmin, async (req, res) => {
     try {
@@ -291,5 +373,23 @@ router.get('/server-icons', authJwt, checkAdmin, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 }) 
+
+
+// get transactions list
+router.get('/transactions', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const transactions = await TransactionsQueue.find( {} )
+            .populate('user', 'username avatar')
+            .populate('subscriptionId', 'tag plans')
+            .exec()
+
+  
+        res.status(200).send(transactions)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 
 module.exports = router

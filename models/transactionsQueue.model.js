@@ -19,7 +19,10 @@ const TransactionsQueue = mongoose.model(
         plan: Number,
         currency: String,
         amount: Number,
-        sentAmount: Number,
+        sentAmount: {
+            type: Number,
+            default: 0
+        },
         address: String,
         privateKey: String,
         createdAt: {

@@ -13,6 +13,7 @@ const User = db.user
 const Role = db.role
 const Guild = db.guild
 const Channel = db.channel
+const  GuildUserProfiles = db.guildUserProfiles
 
 
 function validatePassword(email, username, password) {
@@ -207,19 +208,23 @@ router.get("/permissions", authJwt, async (req, res) => {
     try {
         const userId = req.user._id.toString()
 
-        const guilds = await Guild.find({ members: userId })
-            .select('channels')
+        const fulluserGuilds = await GuildUserProfiles.find( {user: req.user._id } )
             .populate({
-                path: 'channels',
-                select: 'permissions',
-                populate: [{
-                    path: 'permissions.users.id',
-                    select: 'username avatar'
-                }, {
-                    path: 'permissions.roles.id',
-                    select: 'name color'
-                }]
-            })
+                path: 'guild',
+                populate: {
+                    path: 'channels',
+                    select: 'permissions',
+                    populate: [{
+                        path: 'permissions.users.id',
+                        select: 'username avatar'
+                    }, {
+                        path: 'permissions.roles.id',
+                        select: 'name color'
+                    }]
+                }
+            }).exec()
+
+        const guilds = fulluserGuilds.map( f => f.guild )
 
         const roles = await Role.find({ members: userId })
             .select('permissions server')

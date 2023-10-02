@@ -6,6 +6,7 @@ const { checkChannelPermissions } = require('../services')
 const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
 
 const db = require("../models")
+const GuildUserProfiles = db.guildUserProfiles
 const Guild = db.guild
 const User = db.user
 const Channel = db.channel
@@ -663,6 +664,16 @@ router.post('/:channelId/messages', authJwt, async (req, res) => {
                 messages: message._id
             }
         })
+
+        if( channel?.server ) {
+            await GuildUserProfiles.updateOne(
+                { guild: channel.server, user: authorId },
+                {
+                  $set: { lastActive: Date.now() },
+                  $inc: { messages_count: 1 }
+                }
+            )
+        }
         
     
         // Populate the message object with the author's username and the channel's name

@@ -3,7 +3,7 @@ const router = express.Router()
 
 const { authJwt } = require('../middlewares')
 const { checkServerPermissions } = require('../services')
-const { unsubscribeAllUsers } = require('../sockets/helpers')
+const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
 
 const db = require("../models")
 const Guild = db.guild
@@ -65,9 +65,14 @@ router.post( '/', authJwt, async (req, res) => {
         // create new server
         const server = await Guild.create({
             name,
-            owner: userId,
-            members: [userId]
+            owner: userId
         })
+
+        // create member doc for owner
+        const ownerGuildMember = await GuildUserProfiles.create( {
+            guild: server._id,
+            user: userId
+        } )
 
         // create everyone role
         const everyone_role = await Role.create({
@@ -79,6 +84,7 @@ router.post( '/', authJwt, async (req, res) => {
         })
     
         // initialize channels and roles based on server type
+        
         const { channels, roles } = guildTypes[serverType]
         const channelPromises = channels.map(({ name, position, type }) =>
             Channel.create({
@@ -94,8 +100,21 @@ router.post( '/', authJwt, async (req, res) => {
                     }
                 } 
             })
+            
         )
         const channelsDocs = await Promise.all(channelPromises)
+
+
+        let currentParent = null
+        for( const channelDoc of channelsDocs ) {
+            if( channelDoc.type === 'category' ) currentParent = channelDoc._id
+            if( channelDoc.type === 'text' && currentParent !== null ) {
+                channelDoc.parent = currentParent
+                await channelDoc.save()
+            }
+
+        }
+
         const channelIds = channelsDocs.map((channel) => channel._id)
     
         const rolePromises = roles.map(({ name, permissions, color }) =>
@@ -128,34 +147,43 @@ router.post( '/', authJwt, async (req, res) => {
         const populatedServer = await Guild.findById(server._id)
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username status' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'channel', select: 'name' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'guild', select: 'name' }
+                populate: [
+                    { path: 'inviter', select: 'avatar username status' },
+                    { path: 'channel', select: 'name' },
+                    { path: 'guild', select: 'name' }
+                ]
             })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position server',
-                /*populate: {
-                    path: 'messages',
-                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate:  {
-                        path: 'hasReply',
-                        select: 'content author'
-                    }
-                }*/
             })
             .populate({
                 path: 'roles'
             })
             .exec()
+
+        
+        populatedServer.channels.forEach( c => {
+            const updatesRes = {
+                channel: c._id.toString(),
+                permission: {
+                    type: 0,
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: {
+                        _id: everyone_role._id.toString(),
+                        name: everyone_role.name,
+                        color: everyone_role.color
+                    }
+                }
+            }
     
-        res.status(201).send( populatedServer )
+            sendToAllUserIds(req.io, [userId], 'PERMISSION_UPDATE', updatesRes)
+        })
+
+        const guildMembers = await GuildUserProfiles.find( {guild: server._id} ) 
+
+        res.status(201).send( {...populatedServer.toObject(), members: guildMembers} )
     } catch (error) {
         console.error(error)
         res.status(500).send({ error: 'Server error' })
@@ -251,11 +279,16 @@ router.get('/members', authJwt, async (req, res) => {
 // get guild
 router.get( '/:guild', authJwt, async (req, res) => {
     try {
+        const userId = req.user._id.toString()
         const guildId = req.params.guild
         if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
 
         // get server by id and populate owner, memebers, channels and messages and their author
-        const guild = await Guild.findOne( { _id: guildId, members: req.user._id } )
+
+        const guildMemberfound = await GuildUserProfiles.exists( {user: userId, guild: guildId} )
+        if( !guildMemberfound ) throw new Error('Guild not found')
+        
+        const guild = await Guild.findOne( { _id: guildId } )
             .populate({ path: 'owner', select: 'username avatar' })
             .populate({ path: 'members', select: 'username avatar status createdAt' })
             .populate({
@@ -292,6 +325,7 @@ router.delete('/:guild', authJwt, async (req, res) => {
         await Role.deleteMany({ server: guildId })
         await Invite.deleteMany({ server: guildId })
         await Message.deleteMany({ server: guildId })
+        await GuildUserProfiles.deleteMany({ guild: guildId })
     
         // delete server
         const server = await Guild.findByIdAndDelete(guildId)

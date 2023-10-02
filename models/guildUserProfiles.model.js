@@ -20,17 +20,29 @@ const GuildUserProfiles = mongoose.model(
             type: String,
             default: '',
         },
+        present: {
+            type: Boolean,
+            default: true
+        },
         banned: {
             type: Boolean,
             default: false,
         },
+        bans : [{
+            type: Schema.Types.ObjectId,
+            ref: 'GuildBans',
+        }],
         messages_count: {
             type: Number,
             default: 0
         },
+        lastActive: {
+            type: Date,
+            default: new Date(),
+        },
         createdAt: {
             type: Date,
-            default: Date.now,
+            default: new Date(),
         }
     })
 )

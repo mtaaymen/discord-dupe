@@ -2,12 +2,14 @@ const express = require('express')
 const router = express.Router()
 
 const { authJwt } = require('../middlewares')
+const { sendToAllUserIds } = require('../sockets/helpers')
 
 const db = require("../models")
 const User = db.user
 const Guild = db.guild
 const Role = db.role
 const Invite = db.invite
+const GuildUserProfiles = db.guildUserProfiles
 
 router.get('/:code', authJwt, async ( req, res ) => {
     try {
@@ -57,11 +59,23 @@ router.post('/:code', authJwt, async (req, res) => {
         if (!invite) return res.status(404).json({ message: 'Invite not found' })
         
         // Check if user is already a member of the guild
-        if (invite.guild.members.includes(userId)) return res.status(403).json({ message: 'You are already a member of this guild' })
+        let guildMember = await GuildUserProfiles.findOne({guild: invite.guild._id, user: userId})
         
+        if( guildMember ) {
+            if( guildMember.present ) return res.status(403).json({ message: 'You are already a member of this guild' })
+                else {
+                    guildMember.present = true
+                    await guildMember.save()
+                }
+        }
     
-        // Add user to members array of the guild
-        await Guild.updateOne({ _id: invite.guild._id }, { $push: { members: userId } })
+        // create guild memeber
+        if(!guildMember) {
+            guildMember = await GuildUserProfiles.create( {
+                guild: invite.guild._id,
+                user: userId
+            } )
+        }
 
         // add user to everone role of the guild
         await Role.updateOne({ _id: invite.guild.everyone_role }, { $push: { members: userId } })
@@ -80,32 +94,51 @@ router.post('/:code', authJwt, async (req, res) => {
             await invite.save()
         }
 
-        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: userId, guild: invite.guild._id })
+        req.io.to(`guild:${invite.guild._id}`).emit('GUILD_MEMBER_ADD', { member: guildMember, guild: invite.guild._id })
 
         const populatedServer = await Guild.findById(invite.guild._id)
             .populate({
                 path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username avatar status' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'channel', select: 'name' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'guild', select: 'name' }
+                populate: [
+                    { path: 'inviter', select: 'avatar username status' },
+                    { path: 'channel', select: 'name' },
+                    { path: 'guild', select: 'name' }
+                ]
             })
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position server',
-                /*populate: {
-                    path: 'messages',
-                    select: 'content author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                }*/
+            })
+            .populate({
+                path: 'roles'
+            })
+            .populate({
+                path: 'everyone_role',
+                select: 'name color'
             })
             .exec()
+
+        populatedServer.channels.forEach( c => {
+            const updatesRes = {
+                channel: c._id.toString(),
+                permission: {
+                    type: 0,
+                    allow: 70508330735680,
+                    deny: 0,
+                    id: {
+                        _id: populatedServer.everyone_role._id.toString(),
+                        name: populatedServer.everyone_role.name,
+                        color: populatedServer.everyone_role.color
+                    }
+                }
+            }
     
-        return res.status(200).json({ message: 'Invite accepted', guild: populatedServer })
+            sendToAllUserIds(req.io, [userId], 'PERMISSION_UPDATE', updatesRes)
+        })
+    
+        const guildMembers = await GuildUserProfiles.find( {guild: invite.guild._id} ) 
+
+        return res.status(200).json({ message: 'Invite accepted', guild: {...populatedServer.toObject(), members: guildMembers} })
     } catch (err) {
         console.error(err)
         return res.status(500).json({ message: 'Internal server error' })

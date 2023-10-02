@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const speakeasy = require('speakeasy')
 const QRCode = require('qrcode')
+const fs = require('fs')
 
 const { authJwt } = require('../middlewares')
 const { sendToAllUserIds } = require('../sockets/helpers')
@@ -491,8 +492,10 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
 
         if (!db.mongoose.Types.ObjectId.isValid(profileId)) return res.status(400).json({ message: 'Invalid profile id' })
 
+        const user = await User.findById(userId)
+
         const profile = await User.findById(profileId)
-            .select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount')
+            .select('uid avatar banner username bio status customStatus createdAt vouchesCount reputationsCount guilds')
             .populate({
                 path: 'badges',
                 select: 'icon id description',
@@ -507,11 +510,10 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         }
 
         if( with_mutual_guilds === 'true' ) {
-            mutual_guilds = await Guild.find( {
-                members: { $all: [userId, profileId] }
-            } ).select('_id')
+            const userGuildIds = new Set(user.guilds.map(_g => _g.toString()))
+            const mutualGuildIds = profile.guilds.filter(g => userGuildIds.has(g.toString()))
 
-            result.mutual_guilds = mutual_guilds
+            result.mutual_guilds = mutualGuildIds
         }
         if( with_mutual_friends_count === 'true' ) {
             const mutual_friends = await User.find({
@@ -543,37 +545,50 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
 // get user guilds
 router.get( '/@me/guilds', authJwt, async (req, res) => {
     try {
-        const guilds = await Guild.find({ members: req.user._id })
-            .populate({
-                path: 'invites',
-                populate: { path: 'inviter', select: 'avatar username banner status' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'channel', select: 'name' }
-            })
-            .populate({
-                path: 'invites',
-                populate: { path: 'guild', select: 'name' }
-            })
-            .populate({
-                path: 'channels',
-                select: 'name type topic parent position server',
-                /*populate: {
-                    path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                    populate: {
-                        path: 'hasReply',
-                        select: 'content author'
-                    }
-                }*/
-            })
-            .populate({
-                path: 'roles'
-            })
-            .exec()
+        const user = await User.findById( req.user._id )
+            .select('guilds')
 
-        res.status(200).send(guilds)
+        const fulluserGuilds = await Guild.find( { _id: { $in: user.guilds } } )
+            .populate([
+                    {
+                        path: 'invites',
+                        populate: [
+                            { path: 'inviter', select: 'avatar username banner status' },
+                            { path: 'channel', select: 'name' },
+                            { path: 'guild', select: 'name' }
+                        ]
+                    },
+                    {
+                        path: 'channels',
+                        select: 'name type topic parent position server',
+                    },
+                    {
+                        path: 'roles'
+                    }
+            ]).exec()
+
+            const guildsResult = []
+            for( const guild of fulluserGuilds ) {
+                const guildMembers = await GuildUserProfiles.find( {
+                    guild: guild._id,
+                    present: true 
+                } )
+
+                guildsResult.push({
+                    ...guild.toObject(),
+                    members: guildMembers,
+                    icon_data: (() => {
+                        const iconExists = fs.existsSync(`./public/server-icons/${guild.icon}.svg`)
+                        if( iconExists ) {
+                            const filePath = `./public/server-icons/${guild.icon}.svg`
+                            const fileData = fs.readFileSync(filePath, 'utf8')
+                            return fileData
+                        } else return null
+                    })()
+                })
+            }
+
+        res.status(200).send(guildsResult)
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
@@ -594,7 +609,7 @@ router.delete( '/@me/guilds/:guildId', authJwt, async (req, res) => {
 
         const user = await User.findById(userId)
 
-        guild.members.pull(userId)
+        await GuildUserProfiles.updateOne({user: userId, guild: guildId}, {present: false})
         await guild.save()
 
         user.guilds.pull(guildId)
@@ -621,8 +636,7 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
             ])
             .exec()
 
-
-        const fullGuildsMembers = user.guilds.flatMap( g => g.members )
+        const fullGuildsMembers = Array.from( new Set((await GuildUserProfiles.find( {guild: { $in: user.guilds.map(g => g._id)} } )).flatMap( g => g.user.toString() )) )
         const fullChannelsParticipants = user.channels.flatMap( c => c.participants )
 
         const fullRelatedUsers = [
