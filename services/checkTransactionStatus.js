@@ -46,6 +46,7 @@ async function checkTransactionStatus(io) {
           const subDoc = await Subscriptions.findById(transaction.subscriptionId)
     
           await User.findOneAndUpdate( {_id: transaction.user}, { $addToSet: { badges: subDoc.badge } } )
+          await Subscriptions.findOneAndUpdate( {_id: transaction.subscriptionId}, { $inc: { subscribers: 1 } } )
     
           const socketData = {
             selectedSub: subDoc,

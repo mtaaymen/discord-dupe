@@ -4,6 +4,14 @@ const Schema = mongoose.Schema
 
 const Subscriptions = mongoose.model(
     "Subscriptions",  new Schema({
+        disabled: {
+            type: Boolean,
+            default: false
+        },
+        subscribers: {
+            type: Number,
+            default: 0
+        },
         currency: String,
         currencyTag: String,
         price: Number,

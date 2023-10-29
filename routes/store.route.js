@@ -35,7 +35,7 @@ const UserSubscriptions = db.userSubscriptions
 
 router.get( '/subscriptions', authJwt, async ( req, res ) => {
     try {
-        const subscriptionsList = await Subscriptions.find({})
+        const subscriptionsList = await Subscriptions.find({disabled: false})
 
         res.status( 200 ).send(subscriptionsList)
     } catch (error) {
@@ -57,6 +57,8 @@ router.post( '/requestWallet', authJwt, async ( req, res ) => {
 
         const subscription = await Subscriptions.findById(subscriptionId)
         if( !subscription ) return res.status(404).send({ message: 'Subscription not found'})
+
+        if( subscription.disabled ) return res.status(404).send({ message: 'Subscription is disabled'})
 
         if( isNaN(plan) ) return res.status(400).send({ address: 'Invalid plan.' })
         if( !subscription.plans[Number(plan)] ) return res.status(404).send({ message: 'Subscription plan not found'})

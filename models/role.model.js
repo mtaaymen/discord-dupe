@@ -25,7 +25,11 @@ const Role = mongoose.model(
                 ref: 'User'
             }
         ],
-        permissions: Number
+        permissions: Number,
+        createdAt: {
+            type: Date,
+            default: Date.now,
+        },
   })
 )
 

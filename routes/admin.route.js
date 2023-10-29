@@ -3,13 +3,17 @@ const ObjectId = require('mongodb').ObjectId
 const router = express.Router()
 const fs = require('fs')
 const path = require('path')
+const multer = require('multer')
+const sharp = require('sharp');
 
 const { authJwt, checkAdmin } = require('../middlewares')
 const config = require('../config')
 const db = require("../models")
 const { sendToAllUserIds, unsubscribeAllUsers } = require('../sockets/helpers')
-const GuildUserProfiles = require('../models/guildUserProfiles.model')
+const UserSubscriptions = require('../models/userSubscriptions.model')
 
+const GuildUserProfiles = db.guildUserProfiles
+const Badges = db.badges
 const Guild = db.guild
 const Channel = db.channel
 const User = db.user
@@ -17,6 +21,8 @@ const Role = db.role
 const Invite = db.invite
 const Message = db.message
 const TransactionsQueue = db.transactionsQueue
+const Subscriptions = db.subscriptions
+
 
 const guildTypes = {
     1: {
@@ -49,6 +55,104 @@ const guildTypes = {
     },
     // add more types as needed
 }
+
+const paymentTypes = [
+    {
+        name: "Ethereum",
+        symbol: "ETH",
+        isCrypto: true
+    }
+]
+
+const currencies = [
+    {
+        tag: "USD",
+        symbol: "$"
+    }
+]
+
+// get overview data
+router.get('/overview', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const overviewData = {}
+
+        overviewData.users = await User.find({status: { $nin: ['offline', 'away'] }}).select('avatar username')
+        overviewData.USERS_COUNT = await User.countDocuments({})
+        overviewData.TXS_COUNT = await TransactionsQueue.countDocuments({})
+        overviewData.SERVERS_COUNT = await Guild.countDocuments({})
+        overviewData.SUBS_COUNT = await Subscriptions.countDocuments({})
+
+        const UserPoints = await User.aggregate([
+            {
+                $sort: { createdAt: -1 }
+            }, {
+                $group: {
+                    _id: {
+                        year: { $year: '$createdAt' },
+                        month: { $month: '$createdAt' },
+                        day: { $dayOfMonth: '$createdAt' }
+                    },
+                    y: { $sum: 1 } // Count the documents in each group
+                }
+            }, {
+                $project: {
+                    _id: 0,
+                    x: {
+                        $dateFromParts: {
+                            year: '$_id.year',
+                            month: '$_id.month',
+                            day: '$_id.day',
+                        }
+                    },
+                    y: 1
+                }
+            }, {
+                $sort: { day: 1 }
+            }
+        ])
+
+        overviewData.UserPoints = UserPoints
+
+        const TxsPoints = await TransactionsQueue.aggregate([
+            {
+                $match: { status: 'confirmed' }
+            }, {
+                $sort: { createdAt: -1 }
+            }, {
+                $group: {
+                    _id: {
+                        year: { $year: '$createdAt' },
+                        month: { $month: '$createdAt' },
+                        day: { $dayOfMonth: '$createdAt' }
+                    },
+                    y: { $sum: 1 } // Count the documents in each group
+                }
+            }, {
+                $project: {
+                    _id: 0,
+                    x: {
+                        $dateFromParts: {
+                            year: '$_id.year',
+                            month: '$_id.month',
+                            day: '$_id.day',
+                        }
+                    },
+                    y: 1
+                }
+            }, {
+                $sort: { day: 1 }
+            }
+        ])
+
+        overviewData.TxsPoints = TxsPoints
+
+  
+        res.status(200).send(overviewData)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
 
 // create guild
 router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
@@ -363,6 +467,46 @@ router.get('/servers/:serverId/members', authJwt, checkAdmin, async (req, res) =
     }
 })
 
+// get server channels
+router.get('/servers/:serverId/channels', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const serverId = req.params.serverId
+        if (!db.mongoose.Types.ObjectId.isValid(serverId)) return res.status(400).json({ message: 'Invalid server id' })
+
+        const guild = await Guild.findById( serverId )
+            .select('channels')
+            .populate('channels')
+            .exec()
+
+        if(!guild) return res.status(400).json({ message: 'Guild not found.' })
+  
+        res.status(200).send(guild.toObject().channels)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// get server roles
+router.get('/servers/:serverId/roles', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const serverId = req.params.serverId
+        if (!db.mongoose.Types.ObjectId.isValid(serverId)) return res.status(400).json({ message: 'Invalid server id' })
+
+        const guild = await Guild.findById( serverId )
+            .select('roles')
+            .populate('roles')
+            .exec()
+
+        if(!guild) return res.status(400).json({ message: 'Guild not found.' })
+  
+        res.status(200).send(guild.toObject().roles)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 // get all server icons
 router.get('/server-icons', authJwt, checkAdmin, async (req, res) => {
     try {
@@ -385,6 +529,28 @@ router.get('/server-icons', authJwt, checkAdmin, async (req, res) => {
 }) 
 
 
+// get currencies list
+router.get('/currencies', authJwt, checkAdmin, async (req, res) => {
+    try {
+        res.status(200).send(currencies)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// get badges list
+router.get('/badges', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const badges = await Badges.find( {} )
+  
+        res.status(200).send(badges)
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 // get transactions list
 router.get('/transactions', authJwt, checkAdmin, async (req, res) => {
     try {
@@ -401,5 +567,327 @@ router.get('/transactions', authJwt, checkAdmin, async (req, res) => {
     }
 })
 
+// get subscriptions list
+router.get('/subscriptions', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const subscriptionsList = await Subscriptions.find({})
+            .populate('badge')
+
+        res.status( 200 ).send(subscriptionsList)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+
+// create subscription
+router.post('/subscriptions', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const { badge, tag, price, currency, tier } = req.body
+        const currencyObj = currencies.find(c => c.tag === currency)
+        if(!currencyObj) return res.status(400).json({ message: 'Invalid currency' })
+
+        if( !String(tag).trim().length ) return res.status(400).json({ message: 'Tag unavailable' })
+
+        if(!/^\d+(\.\d{1,2})?$/.test(price)) return res.status(400).json({ message: 'Price has to be a numeric value' })
+
+        if(![1,2,3,4].includes(Number(tier))) return res.status(400).json({ message: 'Tier not found' })
+
+        if (!db.mongoose.Types.ObjectId.isValid(badge)) return res.status(400).json({ message: 'Invalid badge id' })
+
+        const badgeExists = await Badges.exists( {_id: badge} )
+        if(!badgeExists) return res.status(400).json({ message: 'Badge does not exist' })
+
+        const newSubscription = await Subscriptions.create({
+            badge,
+            tag: tag.trim(),
+            price: price,
+            currency: currencyObj.tag,
+            currencyTag: currencyObj.symbol,
+            tier,
+            plans: [
+                {
+                    title: 'Default',
+                    monthlySub: true,
+                    price: price,
+                    perks: 7
+                }
+            ]
+        })
+
+        res.status( 200 ).send(newSubscription)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// delete subscription
+router.delete('/subscriptions/:subscriptionId', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const subscriptionId = req.params.subscriptionId
+        if (!db.mongoose.Types.ObjectId.isValid(subscriptionId)) return res.status(400).json({ message: 'Invalid subscription id' })
+
+        const subscription = await Subscriptions.exists({_id: subscriptionId})
+        if(!subscription) return res.status(400).json({ message: 'Invalid subscription' })
+
+        const subscribers = await UserSubscriptions.countDocuments({subscription: subscriptionId})
+        if(!!subscribers) return res.status(400).json({ message: 'Users are already subscribed to this subscription' })
+
+        await TransactionsQueue.updateMany({subscriptionId: subscriptionId, status: 'pending'}, {status: 'Deleted Sub'})
+        await Subscriptions.findByIdAndDelete(subscriptionId)
+
+        res.status( 200 ).send({success: true})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// block subscription
+router.patch('/subscriptions/:subscriptionId/disable', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const subscriptionId = req.params.subscriptionId
+        if (!db.mongoose.Types.ObjectId.isValid(subscriptionId)) return res.status(400).json({ message: 'Invalid subscription id' })
+
+        const subscription = await Subscriptions.findById(subscriptionId)
+        if(!subscription) return res.status(400).json({ message: 'Invalid subscription' })
+
+        const newSub = await Subscriptions.findByIdAndUpdate(subscriptionId, {disabled: !subscription.disabled}, {new: true})
+
+        res.status( 200 ).send({success: true, disabled: newSub.disabled})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// create subscription plan
+router.post('/subscriptions/plans', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const {
+            subscriptionId,
+            subDuration,
+            price,
+            title,
+            perks
+        } = req.body
+
+        const numberSubDuration = Number(subDuration)
+
+        if( !String(title).trim().length ) return res.status(400).json({ message: 'Tag unavailable' })
+
+        if(!/^\d+(\.\d{1,2})?$/.test(price)) return res.status(400).json({ message: 'Price has to be a numeric value' })
+
+        if (!db.mongoose.Types.ObjectId.isValid(subscriptionId)) return res.status(400).json({ message: 'Invalid badge id' })
+
+        if(!/^\d+$/.test(perks)) return res.status(400).json({ message: 'Invalid perks value' })
+
+        if(![0, 1, 2].includes(numberSubDuration)) return res.status(400).json({ message: 'Invalid subscription duration' })
+
+        const subscription = await Subscriptions.findById(subscriptionId)
+        if(!subscription) return res.status(400).json({ message: 'Invalid subscription' })
+
+        const newPlanObject = {
+            title,
+            price,
+            perks
+        }
+
+        if( numberSubDuration === 0 ) newPlanObject.yearlySub = true
+        else if ( numberSubDuration === 1 ) newPlanObject.monthlySub = true
+        else if ( numberSubDuration === 2 ) newPlanObject.weeklySub = true
+
+        subscription.plans.addToSet(newPlanObject)
+        await subscription.save()
+
+        res.status( 200 ).send(subscription)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// delete subscription plan
+router.delete('/subscriptions/:subscriptionId/plans/:planId', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const planId = req.params.planId
+        if (!db.mongoose.Types.ObjectId.isValid(planId)) return res.status(400).json({ message: 'Invalid plan id' })
+
+        const subscriptionId = req.params.subscriptionId
+        if (!db.mongoose.Types.ObjectId.isValid(subscriptionId)) return res.status(400).json({ message: 'Invalid subscription id' })
+
+        const subscription = await Subscriptions.findById(subscriptionId)
+        if(!subscription) return res.status(400).json({ message: 'Invalid subscription' })
+
+        if( subscription.plans.length === 1 ) return res.status(400).json({ message: 'You can not remove all plans' })
+
+        const planIndex = subscription.plans.findIndex(plan => plan._id.equals(planId))
+
+        const subscribers = await UserSubscriptions.countDocuments({subscription: subscriptionId, plan: planIndex})
+        if(!!subscribers) return res.status(400).json({ message: 'Users are already subscribed to this subscription' })
+
+        await TransactionsQueue.updateMany({subscriptionId: subscriptionId, status: 'pending'}, {status: 'Deleted Plan'})
+
+        subscription.plans = subscription.plans.filter( p => p._id.toString() !== planId )
+        await subscription.save()
+
+        res.status( 200 ).send({success: true, planId})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// edit subscription
+router.patch('/subscriptions/:subscriptionId', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const subscriptionId = req.params.subscriptionId
+        if (!db.mongoose.Types.ObjectId.isValid(subscriptionId)) return res.status(400).json({ message: 'Invalid subscription id' })
+
+        const { badge, tag, currency, tier } = req.body
+        const currencyObj = currencies.find(c => c.tag === currency)
+        if(!currencyObj) return res.status(400).json({ message: 'Invalid currency' })
+
+        if( !String(tag).trim().length ) return res.status(400).json({ message: 'Tag unavailable' })
+
+        if(![1,2,3,4].includes(Number(tier))) return res.status(400).json({ message: 'Tier not found' })
+
+        if (!db.mongoose.Types.ObjectId.isValid(badge)) return res.status(400).json({ message: 'Invalid badge id' })
+
+        const badgeExists = await Badges.exists( {_id: badge} )
+        if(!badgeExists) return res.status(400).json({ message: 'Badge does not exist' })
+
+        const editedSubscription = await Subscriptions.findByIdAndUpdate(subscriptionId, {
+            badge,
+            tag: tag.trim(),
+            currency: currencyObj.tag,
+            currencyTag: currencyObj.symbol,
+            tier,
+        })
+
+        res.status( 200 ).send(editedSubscription)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, './public/badge-icons')
+    },
+    filename: function (req, file, cb) {
+        cb(null, `${Date.now()}-${file.originalname}`)
+    },
+})
+  
+const upload = multer({ storage: storage })
+
+
+// create subscription badge
+router.post('/subscriptions/badges', authJwt, checkAdmin, upload.single('badge'), async (req, res) => {
+    try {
+        const { id, description } = req.body
+
+        const { filename, path } = req.file
+
+        if( !String(id).trim().length ) return res.status(400).json({ message: 'Id unavailable' })
+
+        if( !String(description).trim().length ) return res.status(400).json({ message: 'Description unavailable' })
+
+        const metadata = await sharp(path).metadata()
+        const { width, height } = metadata
+    
+        if (width > 250 || height > 250) return res.status(400).send('Image dimensions exceed the 250x250 limit.')
+
+        await Badges.create({
+            icon: filename,
+            id,
+            description
+        })
+
+        res.status( 200 ).send({success: true})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// remove subscription badge
+router.delete('/subscriptions/badges/:badgeId', authJwt, checkAdmin, async (req, res) => {
+    try {
+        const badgeId = req.params.badgeId
+        if (!db.mongoose.Types.ObjectId.isValid(badgeId)) return res.status(400).json({ message: 'Invalid badge id' })
+
+        const badge = await Badges.findById(badgeId)
+        if(!badge) return res.status(400).json({ message: 'Badge does not exist' })
+        
+        if(fs.existsSync(`./public/badge-icons/${badge.icon}`)) fs.unlinkSync(`./public/badge-icons/${badge.icon}`)
+
+        await Badges.deleteOne({_id: badgeId})
+
+        res.status( 200 ).send({success: true})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+
+// get users list
+router.get('/users', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const usersList = await User.find({}).select('uid avatar username adminAccess createdAt lastSeen verified')
+
+        res.status( 200 ).send(usersList)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// get user by id or username
+router.get('/users/:identifier', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const identifier = req.params.identifier
+        const isObjectID = db.mongoose.Types.ObjectId.isValid(identifier)
+
+        let userFound
+        const selectString = 'username uid email phone createdAt lastSeen dob reputations vouches bio verified mfaEnabled'
+
+        if (isObjectID) {
+            userFound = await User.findById(identifier).select(selectString)
+          } else {
+            const uidNumber = parseInt(identifier)
+            if (!isNaN(uidNumber)) {
+                userFound = await User.findOne({ uid: uidNumber }).select(selectString)
+            }
+
+            if (!userFound) {
+                userFound = await User.findOne({
+                  $or: [
+                    { email: identifier },
+                    { username: identifier },
+                  ],
+                }).select(selectString)
+            }
+        }
+
+        if(!userFound) return res.status(400).json({ message: 'User not found' })
+
+        const newUser = {
+            ...userFound.toObject(),
+            reputations_Count: userFound.reputations.length,
+            vouches_Count: userFound.vouches.length
+        }
+
+        res.status( 200 ).send(newUser)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
 
 module.exports = router
