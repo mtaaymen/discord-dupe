@@ -11,7 +11,7 @@ const GuildUserProfiles = db.guildUserProfiles
 const User = db.user
 const Channel = db.channel
 const Role = db.role
-const Invite = db.invite
+//const Invite = db.invite
 const Message = db.message
 
 const guildTypes = {
@@ -68,11 +68,16 @@ router.post( '/', authJwt, async (req, res) => {
             owner: userId
         })
 
-        // create member doc for owner
-        const ownerGuildMember = await GuildUserProfiles.create( {
+        // create member doc for everyone in the server
+
+        /*const ownerGuildMember = await GuildUserProfiles.create( {
             guild: server._id,
             user: userId
-        } )
+        } )*/
+
+        const allUserIds = await User.find({}, '_id')
+        const userProfileDocs = allUserIds.map(_userId => ({ guild: server._id, user: _userId }))
+        await GuildUserProfiles.insertMany(userProfileDocs)
 
         // create everyone role
         const everyone_role = await Role.create({
@@ -124,7 +129,7 @@ router.post( '/', authJwt, async (req, res) => {
         const roleIds = rolesDocs.map((role) => role._id)
 
 
-        let inviteCode
+        /*let inviteCode
         while (!inviteCode) {
             const tempInviteCode = Math.random().toString(36).substr(2, 8)
             const doc = await Invite.findOne({ 'invites.code': tempInviteCode })
@@ -134,25 +139,25 @@ router.post( '/', authJwt, async (req, res) => {
         const invite = await Invite.create({ code: inviteCode, isPermanent: true, inviter: userId, guild: server._id, channel: channelIds[0] })
     
         // save channel and role IDs in server document
-        server.invites = [invite._id]
+        server.invites = [invite._id]*/
         server.channels = channelIds
         server.roles = roleIds
         server.everyone_role = everyone_role._id
         await server.save()
 
-        user.guilds.addToSet(server._id)
-        await user.save()
+        //user.guilds.addToSet(server._id)
+        //await user.save()
 
         // populate channels and roles and send response
         const populatedServer = await Guild.findById(server._id)
-            .populate({
+            /*.populate({
                 path: 'invites',
                 populate: [
                     { path: 'inviter', select: 'avatar username status' },
                     { path: 'channel', select: 'name' },
                     { path: 'guild', select: 'name' }
                 ]
-            })
+            })*/
             .populate({
                 path: 'channels',
                 select: 'name type topic parent position server',
@@ -267,8 +272,7 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
 router.get('/members', authJwt, async (req, res) => {
     try {
         const userId = req.user._id.toString()
-        const user = await User.findById(userId)
-        const allUserProfiles = await GuildUserProfiles.find({ guild: { $in: user.guilds } })
+        const allUserProfiles = await GuildUserProfiles.find({ user: userId })
         res.status(200).json( allUserProfiles )
     } catch (error) {
         console.error(error)
@@ -323,7 +327,7 @@ router.delete('/:guild', authJwt, async (req, res) => {
         // delete channels and roles related to the server
         await Channel.deleteMany({ server: guildId })
         await Role.deleteMany({ server: guildId })
-        await Invite.deleteMany({ server: guildId })
+        //await Invite.deleteMany({ server: guildId })
         await Message.deleteMany({ server: guildId })
         await GuildUserProfiles.deleteMany({ guild: guildId })
     

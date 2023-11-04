@@ -13,7 +13,7 @@ const User = db.user
 const Role = db.role
 const Guild = db.guild
 const Channel = db.channel
-const  GuildUserProfiles = db.guildUserProfiles
+const GuildUserProfiles = db.guildUserProfiles
 
 
 function validatePassword(email, username, password) {
@@ -115,7 +115,7 @@ router.post('/signup', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10)
-        const user = new User({
+        const user = await User.create({
             avatar: "649a999736227fc390010d0c",
             uid,
             username,
@@ -124,7 +124,19 @@ router.post('/signup', async (req, res) => {
             email,
             password: hashedPassword
         })
-        //const token = jwt.sign({ userId: user._id }, config.JWT_SECRET, { expiresIn: '1h' })
+        //const token = jwt.sign({ userId: user._id }, config.JWT_SECRET, { expiresIn: '1h' })'
+
+        const allGuildIds = (await Guild.find({}, '_id')).map(g => g._id)
+        const userProfileDocs = allGuildIds.map(_guildId => ({ guild: _guildId, user: user._id }))
+        const newGuildMembers = await GuildUserProfiles.insertMany(userProfileDocs)
+
+        for( let _guildId of allGuildIds) {
+            const guildMemberDoc = newGuildMembers.find( gm => gm.user.toString() === user._id.toString() && gm.guild.toString() === _guildId.toString() )
+            req.io.to(`guild:${_guildId}`).emit('GUILD_MEMBER_ADD', { member: guildMemberDoc, guild: _guildId })
+        }
+
+        
+
         const token = generateToken(user)
         res.json({ message: 'User created successfully', token })
     } catch (err) {
@@ -229,6 +241,15 @@ router.get("/permissions", authJwt, async (req, res) => {
         const roles = await Role.find({ members: userId })
             .select('permissions server')
 
+        const everyoneRoles = await Guild.find({}, 'everyone_role')
+            .populate('everyone_role', 'permissions server')
+
+        const mappedEveryoneRoles = everyoneRoles.map( r => r.everyone_role )
+
+        const nonEveryoneRoles = roles.filter(roleId => {
+            return !everyoneRoles.some(everyoneRole => everyoneRole.everyone_role.equals(roleId))
+        })
+
         const dmChannels = await Channel.find({ participants: userId })
             .select('permissions')
             .populate([{
@@ -291,7 +312,7 @@ router.get("/permissions", authJwt, async (req, res) => {
             } ),
         ]
 
-        res.status(200).json({channels: channelPermissions, roles: roles})
+        res.status(200).json({channels: channelPermissions, roles: [...nonEveryoneRoles, ...mappedEveryoneRoles]})
         /*const userId = req.user._id
     
         // Find all the servers where the user is a member

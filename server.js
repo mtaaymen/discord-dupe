@@ -30,6 +30,8 @@ const io = require('socket.io')(httpServer, {
 const User = db.user
 const Subscriptions = db.subscriptions
 const Badges = db.badges
+const GuildUserProfiles = db.guildUserProfiles
+const Guild = db.guild
 
 db.mongoose.set('strictQuery', false)
 
@@ -72,13 +74,13 @@ db.mongoose
                 await Channel.findByIdAndRemove(channel._id)
                 console.log(channel._id, 'removed')
             }*/
-            const allUsers = await User.find({}).select('uid username')
+            /*const allUsers = await User.find({}).select('uid username')
             for( const user of allUsers ) {
 
-                /*user.avatar = "649a999736227fc390010d0c"
-                await user.save()*/
+                user.avatar = "649a999736227fc390010d0c"
+                await user.save()
                 
-                /*user.uid = 0
+                user.uid = 0
                 await user.save()
                 console.log( `set uid of ${user.username} to ${user.uid}` )
 
@@ -94,8 +96,17 @@ db.mongoose
                     user.uid = userWithBiggestUid.uid + 1
                     await user.save()
                     console.log( `set uid of ${user.username} to ${user.uid}` )
-                }*/
-            }
+                }
+            }*/
+
+            /*const allGuilds = await Guild.find({})
+            for( const _guild of allGuilds ) {
+                for( const _user of allUsers ) {
+                    console.log('user:', _user.username, '_ guild:', _guild.name)
+                    const foundProfile = await GuildUserProfiles.exists({ user: _user._id, guild: _guild._id })
+                    if( !foundProfile ) await GuildUserProfiles.create({ user: _user._id, guild: _guild._id })
+                }
+            }*/
 
             await User.updateMany({}, { status: 'offline', 'customStatus.status': null })
             console.log('All User status set to offline')
@@ -132,7 +143,7 @@ const usersRoute = require( './routes/users.route' )
 const guildsRoute = require( './routes/guilds.route' )
 const channelsRoute = require( './routes/channels.route' )
 const authRoute = require('./routes/auth.route')
-const invitesRoute = require('./routes/invites.route')
+//const invitesRoute = require('./routes/invites.route')
 const storeRoute = require('./routes/store.route')
 const adminRoute = require('./routes/admin.route')
 
@@ -141,7 +152,7 @@ app.use( '/users', usersRoute )
 app.use( '/guilds', guildsRoute )
 app.use( '/channels', channelsRoute )
 app.use( '/auth', authRoute )
-app.use( '/invites', invitesRoute )
+//app.use( '/invites', invitesRoute )
 app.use( '/store', storeRoute )
 app.use( '/admin', adminRoute )
 

@@ -177,7 +177,7 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
     const userIsServerOwner = channel.server && channel.server.owner.toString() === user._id.toString()
     if( userIsServerOwner ) return true
 
-    console.log( '\n-----\n' )
+    //console.log( '\n-----\n' )
 
     let missingPermissions
 
@@ -187,47 +187,56 @@ async function checkChannelPermissions(user, channelId, requiredPermissions) {
     if( userPermissions ) {
         const userHasDirectPermission = hasPermissions(userPermissions.allow, userPermissions.deny, requiredPermissions)
         if (userHasDirectPermission === true) {
-            console.log('(USER) User has all required permissions')
+            //console.log('(USER) User has all required permissions')
             return true
         } else if (Array.isArray(userHasDirectPermission)) {
-            console.log(`(USER) User is missing the following permissions: ${userHasDirectPermission.join(', ')}`)
+            //console.log(`(USER) User is missing the following permissions: ${userHasDirectPermission.join(', ')}`)
             if( !channel.server ) return false
             missingPermissions = userHasDirectPermission
         } else {
-            console.log(`(USER) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
+            //console.log(`(USER) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
             return false
         }
     } else {
-        console.log(`(USER) User is missing the following permissions: ${requiredPermissions.join(', ')}`)
+        //console.log(`(USER) User is missing the following permissions: ${requiredPermissions.join(', ')}`)
         if( !channel.server ) return false
         missingPermissions = requiredPermissions
     }
 
     const userRoles = await Role.find({ members: user._id, server: channel?.server?._id })
+        .select('permissions server')
 
+    const everyoneRole = await Guild.findById(channel?.server?._id, 'everyone_role')
+        .populate('everyone_role', 'permissions server')
 
-    const userHasPermissionByRole = checkRolesOverwritePermissions(sortedChannelPermissions, userRoles, missingPermissions)
+    const nonEveryoneRoles = userRoles.filter(roleId => {
+        return !everyoneRole._id === roleId
+    })
+
+    const fullUserRoles = [everyoneRole.everyone_role, ...nonEveryoneRoles]
+
+    const userHasPermissionByRole = checkRolesOverwritePermissions(sortedChannelPermissions, fullUserRoles, missingPermissions)
     if (userHasPermissionByRole === true) {
-        console.log('(ROLE-1) User has all required permissions')
+        //console.log('(ROLE-1) User has all required permissions')
         return true
     } else if (Array.isArray(userHasPermissionByRole)) {
-        console.log(`(ROLE-1) User is missing the following permissions: ${userHasPermissionByRole.join(', ')}`)
+        //console.log(`(ROLE-1) User is missing the following permissions: ${userHasPermissionByRole.join(', ')}`)
         missingPermissions = userHasPermissionByRole
     } else {
-        console.log(`(ROLE-1) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
+        //console.log(`(ROLE-1) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
     
 
-    const userHasServerPermissionByRole = checkRolesPermissions(userRoles, missingPermissions)
+    const userHasServerPermissionByRole = checkRolesPermissions(fullUserRoles, missingPermissions)
     if (userHasServerPermissionByRole === true) {
-        console.log('(ROLE-2) User has all required permissions')
+        //console.log('(ROLE-2) User has all required permissions')
         return true
     } else if (Array.isArray(userHasServerPermissionByRole)) {
-        console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        //console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
         return false
     } else {
-        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
+        //console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
 }
@@ -240,19 +249,19 @@ async function checkServerPermissions(user, serverId, requiredPermissions) {
     const userIsServerOwner = server.owner.toString() === user._id.toString()
     if( userIsServerOwner ) return true
 
-    console.log( '\n-----\n' )
+    //console.log( '\n-----\n' )
 
     const userRoles = await Role.find({ members: user._id, server: serverId })
 
     const userHasServerPermissionByRole = checkRolesPermissions(userRoles, requiredPermissions)
     if (userHasServerPermissionByRole === true) {
-        console.log('(ROLE-2) User has all required permissions')
+        //console.log('(ROLE-2) User has all required permissions')
         return true
     } else if (Array.isArray(userHasServerPermissionByRole)) {
-        console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
+        //console.log(`(ROLE-2) User is missing the following permissions: ${userHasServerPermissionByRole.join(', ')}`)
         return false
     } else {
-        console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
+        ////console.log(`(ROLE-2) User is explicitly denied the following permissions: ${requiredPermissions.join(', ')}`)
         return false
     }
 }

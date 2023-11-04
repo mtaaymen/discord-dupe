@@ -73,10 +73,10 @@ const serverSchema = new Schema({
         type: Schema.Types.ObjectId,
         ref: 'User'
     }],
-    invites: [{
+    /*invites: [{
         type: Schema.Types.ObjectId,
         ref: 'Invite'
-    }],
+    }],*/
     createdAt: {
         type: Date,
         default: Date.now,

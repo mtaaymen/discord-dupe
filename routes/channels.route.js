@@ -11,7 +11,7 @@ const Guild = db.guild
 const User = db.user
 const Channel = db.channel
 const Role = db.role
-const Invite = db.invite
+//const Invite = db.invite
 const Message = db.message
 
 // get channel by id
@@ -426,7 +426,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
             return res.status(400).json({ message: 'Cannot delete last channel in server' })
         }
 
-        const inviteExists = await Invite.exists( { channel: channelId, guild: guildId } )
+        /*const inviteExists = await Invite.exists( { channel: channelId, guild: guildId } )
         if( inviteExists ) {
             let firstChannelId
 
@@ -438,7 +438,7 @@ router.delete('/:channel', authJwt, async (req, res) => {
             }
 
             await Invite.updateMany({ channel: channelId, guild: guildId }, { channel: firstChannelId })
-        }
+        }*/
 
         // delete the channel
         await Channel.findByIdAndDelete(channelId)

@@ -18,7 +18,7 @@ const authJwt = async (req, res, next) => {
                 select: 'icon id description',
             })
 
-        if( !user.channels ) {
+        if( !user?.channels ) {
             user.channels = []
             await user.save()
         }

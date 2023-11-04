@@ -18,7 +18,7 @@ const Guild = db.guild
 const Channel = db.channel
 const User = db.user
 const Role = db.role
-const Invite = db.invite
+//const Invite = db.invite
 const Message = db.message
 const TransactionsQueue = db.transactionsQueue
 const Subscriptions = db.subscriptions
@@ -180,11 +180,15 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
             icon
         })
 
-        // create member doc for owner
-        const ownerGuildMember = await GuildUserProfiles.create( {
+        // create member doc for all users
+        /*const ownerGuildMember = await GuildUserProfiles.create( {
             guild: server._id,
             user: userId
-        } )
+        } )*/
+
+        const allUserIds = await User.find({}, '_id')
+        const userProfileDocs = allUserIds.map(_userId => ({ guild: server._id, user: _userId }))
+        await GuildUserProfiles.insertMany(userProfileDocs)
 
         // create everyone role
         const everyone_role = await Role.create({
@@ -234,7 +238,7 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
         const roleIds = rolesDocs.map((role) => role._id)
 
 
-        let inviteCode
+        /*let inviteCode
         while (!inviteCode) {
             const tempInviteCode = Math.random().toString(36).substr(2, 8)
             const doc = await Invite.findOne({ 'invites.code': tempInviteCode })
@@ -244,14 +248,14 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
         const invite = await Invite.create({ code: inviteCode, isPermanent: true, inviter: userId, guild: server._id, channel: channelIds[0] })
     
         // save channel and role IDs in server document
-        server.invites = [invite._id]
+        server.invites = [invite._id]*/
         server.channels = channelIds
         server.roles = roleIds
         server.everyone_role = everyone_role._id
         await server.save()
 
-        user.guilds.addToSet(server._id)
-        await user.save()
+        //user.guilds.addToSet(server._id)
+        //await user.save()
     
         res.status(201).send( {success: true} )
     } catch (error) {
@@ -310,7 +314,7 @@ router.delete('/servers/:guildId', authJwt, checkAdmin, async (req, res) => {
         // delete channels and roles related to the server
         await Channel.deleteMany({ server: guildId })
         await Role.deleteMany({ server: guildId })
-        await Invite.deleteMany({ server: guildId })
+        //await Invite.deleteMany({ server: guildId })
         await Message.deleteMany({ server: guildId })
         await GuildUserProfiles.deleteMany({ guild: guildId })
     
@@ -339,7 +343,7 @@ router.get('/servers', authJwt, checkAdmin, async (req, res) => {
             with_roles,
             with_members,
             with_channels,
-            with_invites,
+            //with_invites,
             with_owner
         } = req.query
 
@@ -350,7 +354,7 @@ router.get('/servers', authJwt, checkAdmin, async (req, res) => {
         }
         
         if (with_roles === 'true') projection.roles = 1
-        if (with_invites === 'true') projection.invites = 1
+        //if (with_invites === 'true') projection.invites = 1
         if (with_members === 'true') projection.members = 1
         if (with_channels === 'true') projection.channels = 1
         if (with_owner === 'true') projection.owner = 1
@@ -397,7 +401,7 @@ router.get('/servers/:serverId', authJwt, checkAdmin, async (req, res) => {
             with_roles,
             with_members,
             with_channels,
-            with_invites,
+            //with_invites,
             with_icon_data
         } = req.query
 
@@ -412,7 +416,7 @@ router.get('/servers/:serverId', authJwt, checkAdmin, async (req, res) => {
         };
         
         if (with_roles === 'true') projection.roles = 1
-        if (with_invites === 'true') projection.invites = 1
+        //if (with_invites === 'true') projection.invites = 1
         if (with_members === 'true') projection.members = 1
         if (with_channels === 'true') projection.channels = 1
 

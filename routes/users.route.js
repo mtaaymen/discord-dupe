@@ -510,8 +510,18 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
         }
 
         if( with_mutual_guilds === 'true' ) {
-            const userGuildIds = new Set(user.guilds.map(_g => _g.toString()))
-            const mutualGuildIds = profile.guilds.filter(g => userGuildIds.has(g.toString()))
+            const user_mutalGuildProfiles = (await GuildUserProfiles.find( { user: user._id } )).map( g => g.guild.toString() )
+            const profile_mutalGuildProfiles = (await GuildUserProfiles.find( { user: profile._id } )).map( g => g.guild.toString() )
+
+            const user_setGuildIds = new Set(user_mutalGuildProfiles)
+
+            const mutualGuildIds = []
+
+            for (const _guildId of profile_mutalGuildProfiles) {
+                if (user_setGuildIds.has(_guildId)) {
+                    mutualGuildIds.push(_guildId)
+                }
+            }
 
             result.mutual_guilds = mutualGuildIds
         }
@@ -545,19 +555,23 @@ router.get( '/:profileId/profile', authJwt, async (req, res) => {
 // get user guilds
 router.get( '/@me/guilds', authJwt, async (req, res) => {
     try {
-        const user = await User.findById( req.user._id )
-            .select('guilds')
 
-        const fulluserGuilds = await Guild.find( { _id: { $in: user.guilds } } )
+        const userGuildProfiles = await GuildUserProfiles.find( {
+            user: req.user._id
+        } ).select('guild')
+
+        const guildsList = userGuildProfiles.map( g => g.guild.toString() )
+
+        const fulluserGuilds = await Guild.find( { _id: { $in: guildsList } } )
             .populate([
-                    {
+                    /*{
                         path: 'invites',
                         populate: [
                             { path: 'inviter', select: 'avatar username banner status' },
                             { path: 'channel', select: 'name' },
                             { path: 'guild', select: 'name' }
                         ]
-                    },
+                    },*/
                     {
                         path: 'channels',
                         select: 'name type topic parent position server',
@@ -571,7 +585,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
             for( const guild of fulluserGuilds ) {
                 const guildMembers = await GuildUserProfiles.find( {
                     guild: guild._id,
-                    present: true 
+                    present: true
                 } )
 
                 guildsResult.push({
@@ -596,7 +610,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
 } )
 
 // leave guild
-router.delete( '/@me/guilds/:guildId', authJwt, async (req, res) => {
+/*router.delete( '/@me/guilds/:guildId', authJwt, async (req, res) => {
     try {
         const { guildId } = req.params
         const userId = req.user._id.toString()
@@ -622,7 +636,7 @@ router.delete( '/@me/guilds/:guildId', authJwt, async (req, res) => {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
     }
-} )
+} )*/
 
 // get global users
 router.get('/@me/globalUsers', authJwt, async (req, res) => {
@@ -636,7 +650,10 @@ router.get('/@me/globalUsers', authJwt, async (req, res) => {
             ])
             .exec()
 
-        const fullGuildsMembers = Array.from( new Set((await GuildUserProfiles.find( {guild: { $in: user.guilds.map(g => g._id)} } )).flatMap( g => g.user.toString() )) )
+        const fullUserGuildsProfiles = await GuildUserProfiles.find({ user: userId })
+        const fullUserGuildsIds = fullUserGuildsProfiles.map(g => g.guild.toString())
+        const fullGuildsMembers = Array.from(new Set((await GuildUserProfiles.find({ guild: { $in: fullUserGuildsIds } })).flatMap(g => g.user.toString())))
+
         const fullChannelsParticipants = user.channels.flatMap( c => c.participants )
 
         const fullRelatedUsers = [
