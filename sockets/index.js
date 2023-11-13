@@ -3,6 +3,7 @@ const config = require('../config')
 const { joinRooms, leaveRooms, onlineStatus, adminAccess } = require('./helpers')
 
 module.exports = (io) => {
+    console.log(`${global.ansiColors.FgRed}${global.ansiColors.LineSymbol}${global.ansiColors.FgGreen}${global.ansiColors.Bright} Connected Socket.${global.ansiColors.Reset}`)
     return ( socket ) => {
         //console.log(`Socket ${socket.id} connected`)
 

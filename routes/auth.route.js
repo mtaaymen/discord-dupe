@@ -6,6 +6,8 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const { authJwt } = require('../middlewares')
 
+const mailTransporter = require('../services/createMailTransporter')()
+
 
 const config = require('../config')
 const db = require("../models")
@@ -14,6 +16,7 @@ const Role = db.role
 const Guild = db.guild
 const Channel = db.channel
 const GuildUserProfiles = db.guildUserProfiles
+const PasswordReset = db.passwordReset
 
 
 function validatePassword(email, username, password) {
@@ -58,6 +61,18 @@ function getTokenVersion(userToken, headerToken) {
     } catch {
         return -1
     }
+}
+
+function generateCode(length = 10) {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let resetCode = '';
+  
+    for (let i = 0; i < length; i++) {
+      const randomIndex = Math.floor(Math.random() * characters.length)
+      resetCode += characters.charAt(randomIndex)
+    }
+  
+    return resetCode
 }
 
 function isEmail(input) {
@@ -145,15 +160,110 @@ router.post('/signup', async (req, res) => {
     }
 })
 
+router.post('/forgot', async (req, res) => {
+    try {
+        const { login } = req.body
+
+        const user = await User.findOne({
+            $or: [
+                { email: login },
+                { username: login },
+            ],
+        })
+
+        if( !user ) return res.status(404).send({ message: 'Email not found'})
+
+        const payload = {
+            email: user.email,
+            id: user._id
+        }
+
+        const ResetToken = jwt.sign(payload, config.JWT_SECRET)
+        const ResetCode = generateCode(30)
+
+        await PasswordReset.create( {
+            user: user._id,
+            email: user.email,
+            code: ResetCode
+        } )
+
+        const mailInfo = await mailTransporter.sendMail( {
+			from: `"${config.APP_NAME}" <myloginnamehereapp@gmail.com>`,
+			to: user.email,
+			subject: `Password reset request for ${config.APP_NAME}`,
+			html: `<div style="text-align: center;vertical-align: top;direction: ltr;font-size: 0px;padding: 40px 50px;margin: 0 auto; max-width: 640px; border-radius: 4px">
+                <div style="vertical-align: top;display: inline-block;direction: ltr;font-size: 13px;text-align: left;width: 100%;">
+                    <div style="color: #737f8d;font-family: Helvetica Neue,Helvetica,Arial,Lucida Grande,sans-serif;font-size: 16px;line-height: 24px;text-align: left;" >
+                        <h2 style="font-family: Helvetica Neue,Helvetica,Arial,Lucida Grande,sans-serif;font-weight: 500;font-size: 20px;color: #4f545c;letter-spacing: 0.27px;" >Hey ${user.username},</h2>
+                        <p>Your ${config.APP_NAME} password can be reset by clicking the button below. If you did not request a new password, please ignore this email.</p>
+                    </div>
+                    <div style="width: 100%">
+                        <div style="width:fit-content;border:none;border-radius:3px;color:white;padding:15px 19px;background-color:#5865f2;margin: 0 auto;" align="center" valign="middle">
+                            <a style="text-decoration: none;line-height: 100%;background: #5865f2;color: white;font-family: Ubuntu,Helvetica,Arial,sans-serif;font-size: 15px;font-weight: normal;text-transform: none;margin: 0px;" href="${config.CLIENT_URL}/reset?token=${ResetToken}&code=${ResetCode}">Reset Password</a>
+                        </div>
+                    </div>
+                </div>
+            </div>`,
+		} )
+        console.log( 'mail sent: ',mailInfo.messageId )
+
+        res.status(200).send({ email: user.email})
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+router.post('/reset', async (req, res) => {
+    try {
+        const { code, token, password } = req.body
+
+        let decodedToken
+
+        try {
+            decodedToken = jwt.verify(token, config.JWT_SECRET)
+        } catch {
+            return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
+        }
+
+        if(!decodedToken?.id || !decodedToken?.email) return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
+
+        const passReset = await PasswordReset.findOne( {
+            user: decodedToken.id,
+            email: decodedToken.email,
+            code,
+        } )
+
+        if( !passReset ) return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
+
+        const user = await User.findById(passReset.user)
+        if( !user ) return res.status(404).send({ message: 'Email not found', password: true})
+        
+        if( !validatePassword(decodedToken.email, user.username, password) ) return res.status(400).send({ message: "Your password is weak.", password: true })
+
+        const hashedPassword = await bcrypt.hash(password, 10)
+        const newUser = await User.findByIdAndUpdate(passReset.user, {password: hashedPassword}, {new: true})
+
+        await PasswordReset.findByIdAndDelete(passReset._id)
+
+        const newToken = generateToken(newUser)
+        res.status(200).json({ token: newToken })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
 router.post('/signin', async (req, res) => {
     try {
         const { email, password } = req.body
-        let user
-        if( isEmail(email) ) {
-            user = await User.findOne({ email })
-        } else {
-            user = await User.findOne({ username: email })
-        }
+
+        const user = await User.findOne({
+            $or: [
+              { email: email },
+              { username: email },
+            ],
+        })
 
         if (!user) throw new Error('Invalid email or password')
         
@@ -181,12 +291,12 @@ router.post('/signin/mfa', async (req, res) => {
 
         if( !code || code.length !== 6 ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
 
-        let user
-        if( isEmail(email) ) {
-            user = await User.findOne({ email })
-        } else {
-            user = await User.findOne({ username: email })
-        }
+        const user = await User.findOne({
+            $or: [
+              { email: email },
+              { username: email },
+            ],
+        })
 
         if( !user.mfaEnabled ) return res.status(400).send({ message: "Invalid two-factor code.", code: true })
 

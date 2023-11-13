@@ -42,6 +42,8 @@ db.userSubscriptions = require("./userSubscriptions.model")
 db.badges = require("./badges.model")
 db.guildUserProfiles = require("./guildUserProfiles.model")
 db.guildBans = require("./guildBans.model")
+db.passwordReset = require("./passwordReset.model")
+//db.rateLimit = require("./RateLimit.model")
 //db.avatar = require("./avatar.model")
 
 module.exports = db

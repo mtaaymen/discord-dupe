@@ -152,7 +152,6 @@ router.post( '/@me/mfa/totp/enable', authJwt, async (req, res) => {
     }
 } )
 
-
 // disable 2fa
 router.post( '/@me/mfa/totp/disable', authJwt, async (req, res) => {
     try {
@@ -190,7 +189,6 @@ router.post( '/@me/mfa/totp/disable', authJwt, async (req, res) => {
         res.status(500).json({ message: 'Internal server error' })
     }
 })
-
 
 // request email code
 router.put( '/@me/email', authJwt, async (req, res) => {
@@ -574,7 +572,7 @@ router.get( '/@me/guilds', authJwt, async (req, res) => {
                     },*/
                     {
                         path: 'channels',
-                        select: 'name type topic parent position server',
+                        select: 'name type topic parent position server rate_limit_per_user',
                     },
                     {
                         path: 'roles'

@@ -105,6 +105,11 @@ const Channel = mongoose.model(
                 position: Number
             }]
         },
+        rate_limit_per_user: {
+            type: Number,
+            enum: [0, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600],
+            default: 0
+        },
         createdAt: {
             type: Date,
             default: Date.now,

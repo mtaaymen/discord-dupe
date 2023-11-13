@@ -1,9 +1,14 @@
 const express = require('express')
+const rateLimit = require('express-rate-limit')
 const router = express.Router()
 
-const { authJwt } = require('../middlewares')
+const { authJwt, messageRateLimiters } = require('../middlewares')
 const { checkChannelPermissions } = require('../services')
 const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
+
+const messageRLs = messageRateLimiters() 
+
+
 
 const db = require("../models")
 const GuildUserProfiles = db.guildUserProfiles
@@ -61,6 +66,7 @@ router.patch('/:channelId', authJwt, async (req, res) => {
         const fieldMap = {
             'channel-name': 'name',
             'channel-topic': 'topic',
+            'channel-slowmode': 'rate_limit_per_user'
             // add more properties here as needed
         }
         const updates = {}
@@ -521,177 +527,200 @@ router.get('/:channelId/messages/:messageId', async (req, res) => {
     }
 })
 
-// create message
-router.post('/:channelId/messages', authJwt, async (req, res) => {
+const setRateLimit = async (req, res, next) => {
     try {
-        const { content, hasReply, toUser } = req.body
-        let { channelId } = req.params
-        const authorId = req.user._id.toString()
-        const user = await User.findById(authorId)
+        const { toUser } = req.body
+        const { channelId } = req.params
 
-        let channel
-        if( toUser ) {
-            channel = await Channel.findOne({ participants: { $all: [authorId, channelId], $size: 2 } })
-            if( !channel ) {
-                const receiver = await User.findById(channelId)
-                if( !receiver ) return res.status(404).send({ message: 'User not found'})
+        if( toUser ) return next()
 
-                channel = await Channel.create({
-                    type: 'dm',
-                    position: 0,
-                    participants: [
-                        authorId,
-                        channelId 
-                    ],
-                    permissions: {
-                        users: [{
-                            allow: 70508330735680,
-                            deny: 0,
-                            id: authorId
-                        }, {
-                            allow: 70508330735680,
-                            deny: 0,
-                            id: channelId
-                        }]
-                    }
-                })
-
-                user.channels.addToSet(channel._id)
-                receiver.channels.addToSet(channel._id)
-
-                await user.save()
-                await receiver.save()
-
-                const populatedDMChannel = await Channel.findById(channel._id)
-                    .populate([{
-                        path: 'messages',
-                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                        populate: {
-                            path: 'hasReply',
-                            select: 'content author'
-                        }
-                    }])
-
-
-                const usersRecievedChannel = [authorId, channelId]
-                
-                for( const participant of [user, receiver] ) {
-                    const permission = {
-                        channel: channel._id.toString(),
-                        permission: {
-                            type: 1,
-                            allow: 70508330735680,
-                            deny: 0,
-                            id: {
-                                _id: participant._id.toString(),
-                                username: participant.username,
-                                avatar: participant.avatar
-                            }
-                        }}
-
-                    sendToAllUserIds(req.io, usersRecievedChannel, 'PERMISSION_UPDATE', permission) 
-                }
-
-
-                
-                sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
-            }
-        } else {
-            channel = await Channel.findById(channelId)
-                .populate('server', '_id')
-        }
-
-        if( !channel ) return res.status(404).send({ message: 'Channel not found'})
-        channelId = channel._id.toString()
-
-
-        let requiredPermissions
+        const channel = await Channel.findById(channelId);
         
-        if(channel.type === 'dm') {
-            requiredPermissions = ['SEND_MESSAGES']
+        if (channel) {
+            const rateLimitImmunity = await checkChannelPermissions(req.user, channelId, ['MANAGE_MESSAGES', 'MANAGE_CHANNELS'])
+            req.rateLimit = rateLimitImmunity ? undefined : channel.rate_limit_per_user
         } else {
-            requiredPermissions = ['SEND_MESSAGES', 'VIEW_CHANNEL']
+            req.rateLimit = undefined
         }
         
-
-        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
-        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to send messages.' })
-
-        if( !channel.server && channel.participants ) {
-            const usersRecievedChannel = []
-
-            for( const participant of channel.participants ) {
-                const participantDoc = await User.findById(participant)
-
-                if( !participantDoc.channels.includes(channelId) ) {
-                    participantDoc.channels.addToSet(channelId)
-                    await participantDoc.save()
-                    usersRecievedChannel.push( participant.toString() )
-                }
-            }
+        next()
+    } catch (error) {
+        console.error('Error fetching channel:', error);
+        next()
+    }
+}
 
 
-            if( usersRecievedChannel.length ) {
-                const populatedDMChannel = await Channel.findById(channelId)
-                    .populate({
-                        path: 'messages',
-                        select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                        populate: {
-                            path: 'hasReply',
-                            select: 'content author'
+// create message
+router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async (req, res) => {
+        try {
+            const { content, hasReply, toUser } = req.body
+            let { channelId } = req.params
+            const authorId = req.user._id.toString()
+            const user = await User.findById(authorId)
+
+            let channel
+            if( toUser ) {
+                channel = await Channel.findOne({ participants: { $all: [authorId, channelId], $size: 2 } })
+                if( !channel ) {
+                    const receiver = await User.findById(channelId)
+                    if( !receiver ) return res.status(404).send({ message: 'User not found'})
+
+                    channel = await Channel.create({
+                        type: 'dm',
+                        position: 0,
+                        participants: [
+                            authorId,
+                            channelId 
+                        ],
+                        permissions: {
+                            users: [{
+                                allow: 70508330735680,
+                                deny: 0,
+                                id: authorId
+                            }, {
+                                allow: 70508330735680,
+                                deny: 0,
+                                id: channelId
+                            }]
                         }
                     })
 
-                sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
-            }
-        }
+                    user.channels.addToSet(channel._id)
+                    receiver.channels.addToSet(channel._id)
 
- 
-        const message = await Message.create({
-            content,
-            author: authorId,
-            channel: channelId,
-            hasReply,
-            ...(channel?.server && { server: channel.server._id.toString() }),
-            type: 0
-        })
-    
-        // Add the message to the channel's messages array
-        await channel.updateOne({
-            lastTimestamp: new Date().getTime(),
-            last_message_id: message._id,
-            $push: {
-                messages: message._id
-            }
-        })
+                    await user.save()
+                    await receiver.save()
 
-        if( channel?.server ) {
-            await GuildUserProfiles.updateOne(
-                { guild: channel.server, user: authorId },
-                {
-                  $set: { lastActive: Date.now() },
-                  $inc: { messages_count: 1 }
+                    const populatedDMChannel = await Channel.findById(channel._id)
+                        .populate([{
+                            path: 'messages',
+                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                            populate: {
+                                path: 'hasReply',
+                                select: 'content author'
+                            }
+                        }])
+
+
+                    const usersRecievedChannel = [authorId, channelId]
+                    
+                    for( const participant of [user, receiver] ) {
+                        const permission = {
+                            channel: channel._id.toString(),
+                            permission: {
+                                type: 1,
+                                allow: 70508330735680,
+                                deny: 0,
+                                id: {
+                                    _id: participant._id.toString(),
+                                    username: participant.username,
+                                    avatar: participant.avatar
+                                }
+                            }}
+
+                        sendToAllUserIds(req.io, usersRecievedChannel, 'PERMISSION_UPDATE', permission) 
+                    }
+
+
+                    
+                    sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
-            )
-        }
-        
+            } else {
+                channel = await Channel.findById(channelId)
+                    .populate('server', '_id')
+            }
+
+            if( !channel ) return res.status(404).send({ message: 'Channel not found'})
+            channelId = channel._id.toString()
+
+            let requiredPermissions
+            
+            if(channel.type === 'dm') {
+                requiredPermissions = ['SEND_MESSAGES']
+            } else {
+                requiredPermissions = ['SEND_MESSAGES', 'VIEW_CHANNEL']
+            }
+            
+
+            const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+            if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to send messages.' })
+
+            if( !channel.server && channel.participants ) {
+                const usersRecievedChannel = []
+
+                for( const participant of channel.participants ) {
+                    const participantDoc = await User.findById(participant)
+
+                    if( !participantDoc.channels.includes(channelId) ) {
+                        participantDoc.channels.addToSet(channelId)
+                        await participantDoc.save()
+                        usersRecievedChannel.push( participant.toString() )
+                    }
+                }
+
+
+                if( usersRecievedChannel.length ) {
+                    const populatedDMChannel = await Channel.findById(channelId)
+                        .populate({
+                            path: 'messages',
+                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
+                            populate: {
+                                path: 'hasReply',
+                                select: 'content author'
+                            }
+                        })
+
+                    sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
+                }
+            }
+
     
-        // Populate the message object with the author's username and the channel's name
-        const populatedMessage = await Message.findById(message._id)
-            .populate({
-                path: 'hasReply',
-                select: 'content author'
+            const message = await Message.create({
+                content,
+                author: authorId,
+                channel: channelId,
+                hasReply,
+                ...(channel?.server && { server: channel.server._id.toString() }),
+                type: 0
+            })
+        
+            // Add the message to the channel's messages array
+            await channel.updateOne({
+                lastTimestamp: new Date().getTime(),
+                last_message_id: message._id,
+                $push: {
+                    messages: message._id
+                }
             })
 
-        req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
+            if( channel?.server ) {
+                await GuildUserProfiles.updateOne(
+                    { guild: channel.server, user: authorId },
+                    {
+                    $set: { lastActive: Date.now() },
+                    $inc: { messages_count: 1 }
+                    }
+                )
+            }
+            
         
-        // Send the populated message object in the response
-        res.status(201).json(populatedMessage)
-    } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: 'Internal server error' })
-    }
-})
+            // Populate the message object with the author's username and the channel's name
+            const populatedMessage = await Message.findById(message._id)
+                .populate({
+                    path: 'hasReply',
+                    select: 'content author'
+                })
+
+            req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
+            
+            // Send the populated message object in the response
+            res.status(201).json(populatedMessage)
+        } catch (error) {
+            console.error(error)
+            res.status(500).json({ message: 'Internal server error' })
+        }
+    })
 
 // delete messsage
 router.delete('/:channelId/messages/:messageId', authJwt, async (req, res) => {
