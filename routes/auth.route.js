@@ -219,14 +219,14 @@ router.post('/reset', async (req, res) => {
         const { code, token, password } = req.body
 
         let decodedToken
-
+        let decodeTokenErr
         try {
             decodedToken = jwt.verify(token, config.JWT_SECRET)
         } catch {
-            return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
+            decodeTokenErr = true
         }
 
-        if(!decodedToken?.id || !decodedToken?.email) return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
+        if(decodeTokenErr || !decodedToken?.id || !decodedToken?.email) return res.status(404).send({ message: "Password reset expired or doesn't exist", password: true})
 
         const passReset = await PasswordReset.findOne( {
             user: decodedToken.id,
@@ -242,7 +242,11 @@ router.post('/reset', async (req, res) => {
         if( !validatePassword(decodedToken.email, user.username, password) ) return res.status(400).send({ message: "Your password is weak.", password: true })
 
         const hashedPassword = await bcrypt.hash(password, 10)
-        const newUser = await User.findByIdAndUpdate(passReset.user, {password: hashedPassword}, {new: true})
+        const newUser = await User.findOneAndUpdate(
+            { _id: passReset.user },
+            { password: hashedPassword },
+            { new: true }
+        )
 
         await PasswordReset.findByIdAndDelete(passReset._id)
 
@@ -351,8 +355,8 @@ router.get("/permissions", authJwt, async (req, res) => {
         const roles = await Role.find({ members: userId })
             .select('permissions server')
 
-        const everyoneRoles = await Guild.find({}, 'everyone_role')
-            .populate('everyone_role', 'permissions server')
+        const everyoneRoles = await Guild.find({_id: { $in: guilds }}, 'everyone_role')
+            .populate('everyone_role', 'permissions server color name')
 
         const mappedEveryoneRoles = everyoneRoles.map( r => r.everyone_role )
 

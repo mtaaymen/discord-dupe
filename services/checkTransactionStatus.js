@@ -19,8 +19,19 @@ const Subscriptions = db.subscriptions
 
 //console.log( web3.eth.accounts.wallet.create(1) )
 
+let loggedError
+
 async function checkTransactionStatus(io) {
   try {
+    if( db.mongoose.connection.readyState !== 1 ) {
+      if(loggedError) return
+
+      loggedError = true
+      console.log(`${global.ansiColors.FgRed}${global.ansiColors.LineSymbol}${global.ansiColors.Bright} Failed to check transactions due to database is disconnected.${global.ansiColors.Reset}`)
+      return
+    }
+    loggedError = false
+
     const pendingTransactions = await TransactionsQueue.find({ status: 'pending' })
 
     for (const transaction of pendingTransactions) {
@@ -72,7 +83,7 @@ async function checkTransactionStatus(io) {
 
     }
   } catch( err ) {
-    console.error(err)
+    console.log(`${global.ansiColors.FgRed}${global.ansiColors.LineSymbol}${global.ansiColors.Bright} Some error occured in the transactions checker (Most likley connection error).${global.ansiColors.Reset}`)
   }
 }
 

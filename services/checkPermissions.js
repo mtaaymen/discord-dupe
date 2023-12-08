@@ -268,5 +268,7 @@ async function checkServerPermissions(user, serverId, requiredPermissions) {
 
 module.exports = {
     checkChannelPermissions,
-    checkServerPermissions
+    checkServerPermissions,
+    decodePermissions,
+    encodePermissions
 }

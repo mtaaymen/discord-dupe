@@ -747,14 +747,15 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
 
                 channelId = newDMChannel._id.toString()
     
-                receiver.channels.addToSet(newDMChannel._id)
+                //receiver.channels.addToSet(newDMChannel._id)
                 user.channels.addToSet(newDMChannel._id)
         
                 await user.save()
-                await receiver.save()
+                //await receiver.save()
     
                 const populatedDMChannel = await Channel.findById(newDMChannel._id)
-                const usersRecievedChannel = [userId, receiverId]
+                    .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
+                const usersRecievedChannel = [userId/*, receiverId*/]
 
                 sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
 
@@ -787,6 +788,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
     
                 if( usersRecievedChannel.length ) {
                     const populatedDMChannel = await Channel.findById(dmChannel._id)
+                        .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
         
                     sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
@@ -839,6 +841,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
         await user.save()
 
         const populatedGroupDMChannel = await Channel.findById(newGroupDMChannel._id)
+            .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
         sendToAllUserIds(req.io, channelParticipants, 'CHANNEL_CREATE', populatedGroupDMChannel)
 
 
@@ -856,7 +859,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                     }
                 }}
 
-            sendToAllUserIds(req.io, channelParticipants, 'PERMISSION_UPDATE', permission) 
+            sendToAllUserIds(req.io, channelParticipants, 'PERMISSION_UPDATE', permission)
         }
 
         
@@ -1085,6 +1088,7 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             await receiver.save()
 
             const populatedDMChannel = await Channel.findById(newDMChannel._id)
+                .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
 
 
             sendToAllUserIds(req.io, addFriendUserIds, 'CHANNEL_CREATE', populatedDMChannel)
@@ -1103,10 +1107,7 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
             }
 
             const populatedDMChannel = await Channel.findById(dmChannel._id)
-                .populate([{
-                    path: 'messages',
-                    select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt'
-                }])
+                .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
 
             sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
         }

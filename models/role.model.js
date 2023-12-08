@@ -17,7 +17,7 @@ const Role = mongoose.model(
             required: true
         },
         color: {
-            type: String
+            type: Number
         },
         members: [
             {

@@ -4,7 +4,8 @@ const router = express.Router()
 const fs = require('fs')
 const path = require('path')
 const multer = require('multer')
-const sharp = require('sharp');
+const sharp = require('sharp')
+const bcrypt = require('bcrypt')
 
 const { authJwt, checkAdmin } = require('../middlewares')
 const config = require('../config')
@@ -33,9 +34,9 @@ const guildTypes = {
             { name: 'test', position: 3, type: 'text' },
         ],
         roles: [
-            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
-            { name: 'moderator', color: '#00ff00', permissions: 70886355229761 },
-            { name: 'member', color: '#0000ff', permissions: 70886355229761 },
+            { name: 'admin', color: 1752220, permissions: 70886355229761 },
+            { name: 'moderator', color: 15277667, permissions: 70886355229761 },
+            { name: 'member', color: 3447003, permissions: 70886355229761 },
         ],
     },
     2: {
@@ -48,9 +49,9 @@ const guildTypes = {
             { name: 'valorant', position: 5, type: 'text' },
         ],
         roles: [
-            { name: 'owner', color: '#000000', permissions: 70886355229761 },
-            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
-            { name: 'member', color: '#0000ff', permissions: 70886355229761 }
+            { name: 'owner', color: 15105570, permissions: 70886355229761 },
+            { name: 'admin', color: 1752220, permissions: 70886355229761 },
+            { name: 'member', color: 3447003, permissions: 70886355229761 }
         ],
     },
     // add more types as needed
@@ -193,7 +194,7 @@ router.post( '/servers', authJwt, checkAdmin, async (req, res) => {
         // create everyone role
         const everyone_role = await Role.create({
             name: "@everyone",
-            color: '#000000',
+            color: 10070709,
             members: [userId],
             server: server._id,
             permissions: 70886355229761
@@ -888,6 +889,99 @@ router.get('/users/:identifier', authJwt, checkAdmin, async ( req, res ) => {
         }
 
         res.status( 200 ).send(newUser)
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// give non admin user admin access
+router.post('/users/:targetId/access', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const { password } = req.body
+        const userId = req.user._id.toString()
+
+        if( req.adminAccess !== 2 ) return res.status(403).json({ message: 'No access to perform this action.' })
+
+        const user = await User.findById(userId, 'password')
+        if(!user) return res.status(400).json({ message: 'Invalid target id' })
+
+        const isMatch = await bcrypt.compare(password, user.password)
+        if (!isMatch) return res.status(401).json({ message: 'Wrong password' })
+
+        const targetId = req.params.targetId
+        if (!db.mongoose.Types.ObjectId.isValid(targetId)) return res.status(400).json({ message: 'Invalid target id' })
+
+        const target = await User.findById(targetId, 'adminAccess')
+
+        if( target.adminAccess !== 0 ) return res.status(400).json({ message: 'User already has access' })
+
+        await User.findOneAndUpdate({_id: targetId}, { adminAccess: 1 })
+        sendToAllUserIds( req.io, [targetId], 'ADMIN_ACCESS', { access: 1 } )
+
+        res.status( 200 ).send({adminAccess: 1, user: targetId})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// upgrade user admin access
+router.patch('/users/:targetId/access', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const { password } = req.body
+        const userId = req.user._id.toString()
+
+        if( req.adminAccess !== 2 ) return res.status(403).json({ message: 'No access to perform this action.' })
+
+        const user = await User.findById(userId, 'password')
+        if(!user) return res.status(400).json({ message: 'Invalid target id' })
+
+        const isMatch = await bcrypt.compare(password, user.password)
+        if (!isMatch) return res.status(401).json({ message: 'Wrong password' })
+
+        const targetId = req.params.targetId
+        if (!db.mongoose.Types.ObjectId.isValid(targetId)) return res.status(400).json({ message: 'Invalid target id' })
+
+        const target = await User.findById(targetId, 'adminAccess')
+
+        if( target.adminAccess !== 1 ) return res.status(400).json({ message: 'User already has access' })
+
+        await User.findOneAndUpdate({_id: targetId}, { adminAccess: 2 })
+        sendToAllUserIds( req.io, [targetId], 'ADMIN_ACCESS', { access: 2 } )
+
+        res.status( 200 ).send({adminAccess: 2, user: targetId})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// remove user admin access
+router.delete('/users/:targetId/access', authJwt, checkAdmin, async ( req, res ) => {
+    try {
+        const { password } = req.body
+        const userId = req.user._id.toString()
+
+        if( req.adminAccess !== 2 ) return res.status(403).json({ message: 'No access to perform this action.' })
+
+        const user = await User.findById(userId, 'password')
+        if(!user) return res.status(400).json({ message: 'Invalid target id' })
+
+        const isMatch = await bcrypt.compare(password, user.password)
+        if (!isMatch) return res.status(401).json({ message: 'Wrong password' })
+
+        const targetId = req.params.targetId
+        if (!db.mongoose.Types.ObjectId.isValid(targetId)) return res.status(400).json({ message: 'Invalid target id' })
+
+        const target = await User.findById(targetId, 'adminAccess')
+
+        if( target.adminAccess !== 1 ) return res.status(400).json({ message: 'Can not remove access from this user' })
+
+        await User.findOneAndUpdate({_id: targetId}, { adminAccess: 0 })
+        sendToAllUserIds( req.io, [targetId], 'ADMIN_ACCESS', { access: 0 } )
+
+        res.status( 200 ).send({adminAccess: 0, user: targetId})
     } catch (error) {
         console.error(error)
         return res.status(500).json({ message: 'Internal server error' })

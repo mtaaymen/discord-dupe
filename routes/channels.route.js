@@ -593,14 +593,7 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                     await receiver.save()
 
                     const populatedDMChannel = await Channel.findById(channel._id)
-                        .populate([{
-                            path: 'messages',
-                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                            populate: {
-                                path: 'hasReply',
-                                select: 'content author'
-                            }
-                        }])
+                        .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
 
 
                     const usersRecievedChannel = [authorId, channelId]
@@ -662,14 +655,7 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
 
                 if( usersRecievedChannel.length ) {
                     const populatedDMChannel = await Channel.findById(channelId)
-                        .populate({
-                            path: 'messages',
-                            select: 'content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt',
-                            populate: {
-                                path: 'hasReply',
-                                select: 'content author'
-                            }
-                        })
+                        .select('owner name last_message_id lastTimestamp isGroup participants permissions type server')
 
                     sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
@@ -722,7 +708,7 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
         }
     })
 
-// delete messsage
+// delete message
 router.delete('/:channelId/messages/:messageId', authJwt, async (req, res) => {
     try {
         const { channelId, messageId } = req.params

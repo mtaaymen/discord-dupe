@@ -53,6 +53,7 @@ const Subscriptions = db.subscriptions
 const Badges = db.badges
 const GuildUserProfiles = db.guildUserProfiles
 const Guild = db.guild
+const Role = db.role
 
 db.mongoose.set('strictQuery', false)
 
@@ -70,6 +71,56 @@ db.mongoose
         initServer()
 
         try {
+            /*function encodeColor(rgbOrHex) {
+                if (typeof rgbOrHex === 'string') {
+                    if (rgbOrHex[0] === '#') {
+                        rgbOrHex = hexToRgb(rgbOrHex)
+                    } else {
+                        rgbOrHex = parseRgbString(rgbOrHex)
+                    }
+                  
+                    return (rgbOrHex.r << 16) + (rgbOrHex.g << 8) + rgbOrHex.b
+                }
+                
+                return rgbOrHex
+            }
+            
+            function decodeColor(encodedColor) {
+                const r = (encodedColor >> 16) & 0xFF
+                const g = (encodedColor >> 8) & 0xFF
+                const b = encodedColor & 0xFF
+                
+                return `rgb(${r}, ${g}, ${b})`
+            }
+            
+            function hexToRgb(hex, isString) {
+                hex = hex.replace(/^#/, '')
+            
+                const bigint = parseInt(hex, 16)
+            
+                const r = (bigint >> 16) & 255
+                const g = (bigint >> 8) & 255
+                const b = bigint & 255
+              
+                if(isString) return `rgb(${r}, ${g}, ${b})`
+                return { r, g, b }
+            }
+              
+            function parseRgbString(rgbString) {
+                const match = rgbString.match(/(\d+),\s*(\d+),\s*(\d+)/)
+                if (match) {
+                    return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]) }
+                } else {
+                    throw new Error('Invalid RGB string format')
+                }
+            }
+
+            const allRoles = await Role.find({})
+            for( const role of allRoles ) {
+                const encoededColor = encodeColor(role.color)
+                await Role.findOneAndUpdate({_id: role._id}, {color: encoededColor})
+                console.log(role._id, 'encoded:', encoededColor)
+            }*/
 
             /*const vipBadge = await Badges.create({
                 icon: 'VIP-badge',
@@ -139,6 +190,18 @@ db.mongoose
             console.error('Error setting User status to offline:', err)
         }
     })
+    .catch((error) => {
+        console.log(`${ansiColors.FgRed}${ansiColors.LineSymbol}${ansiColors.Bright} Error connecting to MongoDB: ${error.message}${ansiColors.Reset}`)
+    })
+
+
+process.on('SIGINT', () => {
+    db.mongoose.connection.close(() => {
+        console.log(`${ansiColors.FgRed}${ansiColors.LineSymbol}${ansiColors.Bright} EMongoDB connection closed due to application termination.${ansiColors.Reset}`)
+        process.exit(0)
+    })
+})
+
 
 
 const initServer = () => {
@@ -162,6 +225,11 @@ const initServer = () => {
         "optionsSuccessStatus": 204,
         "exposedHeaders": ["set-cookie"]
     }
+
+    app.use((req, res, next) => {
+        if(db.mongoose.connection.readyState !== 1) return res.status(500).json({ message: 'Database connection error' })
+        next()
+    })
 
     app.use((req, res, next) => {
         req.io = io

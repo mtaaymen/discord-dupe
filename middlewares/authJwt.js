@@ -5,8 +5,18 @@ const User = db.user
 
 const authJwt = async (req, res, next) => {
     try {
-        const token = req.headers.authorization.split(' ')[1]
-        const decodedToken = jwt.verify(token, config.JWT_SECRET)
+        
+        let decodedToken
+        let decodeTokenErr
+        try {
+            const token = req.headers.authorization.split(' ')[1]
+            decodedToken = jwt.verify(token, config.JWT_SECRET)
+        } catch {
+            decodeTokenErr = true
+        }
+
+        if(decodeTokenErr || typeof decodedToken?.version !== 'number' || !decodedToken?.userId) return res.status(404).send({ message: "Invalid token"})
+
         const user = await User.findById(decodedToken.userId)
             .select('mfaEnabled uid avatar banner version blockedUsers createdAt username bio guilds dob email friends mutedChannels mutedServers pendingFriendRequests sentFriendRequests phone status reputations givenReputations vouches givenVouches')
             .populate({

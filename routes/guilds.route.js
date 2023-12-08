@@ -2,7 +2,8 @@ const express = require('express')
 const router = express.Router()
 
 const { authJwt } = require('../middlewares')
-const { checkServerPermissions } = require('../services')
+const { checkServerPermissions, encodePermissions, decodePermissions } = require('../services')
+const { encodeColor, decodeColor, isEncodedColor } = require('../services/colorsEncoder')
 const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
 
 const db = require("../models")
@@ -23,9 +24,9 @@ const guildTypes = {
             { name: 'test', position: 3, type: 'text' },
         ],
         roles: [
-            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
-            { name: 'moderator', color: '#00ff00', permissions: 70886355229761 },
-            { name: 'member', color: '#0000ff', permissions: 70886355229761 },
+            { name: 'admin', color: 1752220, permissions: 70886355229761 },
+            { name: 'moderator', color: 15277667, permissions: 70886355229761 },
+            { name: 'member', color: 3447003, permissions: 70886355229761 },
         ],
     },
     2: {
@@ -38,9 +39,9 @@ const guildTypes = {
             { name: 'valorant', position: 5, type: 'text' },
         ],
         roles: [
-            { name: 'owner', color: '#000000', permissions: 70886355229761 },
-            { name: 'admin', color: '#ff0000', permissions: 70886355229761 },
-            { name: 'member', color: '#0000ff', permissions: 70886355229761 }
+            { name: 'owner', color: 15105570, permissions: 70886355229761 },
+            { name: 'admin', color: 1752220, permissions: 70886355229761 },
+            { name: 'member', color: 3447003, permissions: 70886355229761 }
         ],
     },
     // add more types as needed
@@ -82,8 +83,7 @@ router.post( '/', authJwt, async (req, res) => {
         // create everyone role
         const everyone_role = await Role.create({
             name: "@everyone",
-            color: '#000000',
-            members: [userId],
+            color: 10070709,
             server: server._id,
             permissions: 70886355229761
         })
@@ -182,7 +182,7 @@ router.post( '/', authJwt, async (req, res) => {
                     }
                 }
             }
-    
+
             sendToAllUserIds(req.io, [userId], 'PERMISSION_UPDATE', updatesRes)
         })
 
@@ -198,7 +198,7 @@ router.post( '/', authJwt, async (req, res) => {
 // create guild channel
 router.post( '/:guild/channels', authJwt, async (req, res) => {
     try {
-        const { name = 'channel', type = 'text', parent = null } = req?.body || {}
+        const { name = 'channel', type = 'text', parent = null, permission_overwrites } = req?.body || {}
 
         const guildId = req.params.guild
         if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
@@ -220,6 +220,44 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
         const channelWithBiggestPos = await Channel.findOne().sort('-position').select('position')
         const nextChannelPos = channelWithBiggestPos ? channelWithBiggestPos.position + 1 : 0
 
+
+        let permissions = {
+            roles: [{
+                allow: 70508330735680,
+                deny: 0,
+                id: guild.everyone_role
+            }]
+        }
+
+        if(permission_overwrites && Array.isArray(permission_overwrites)) {
+            const newPerms = {
+                roles: [],
+                users: []
+            }
+
+            permission_overwrites.forEach( perm => {
+                if( perm?.type === 0 ) {
+                    if( perm.id && db.mongoose.Types.ObjectId.isValid(perm.id._id) ) {
+                        newPerms.roles.push({
+                            allow: perm?.allow || 0,
+                            deny: perm?.deny || 0,
+                            id: perm.id._id
+                        })
+                    }
+                } else if( perm?.type === 1 ) {
+                    if( perm.id && db.mongoose.Types.ObjectId.isValid(perm.id._id) ) {
+                        newPerms.users.push({
+                            allow: perm?.allow || 0,
+                            deny: perm?.deny || 0,
+                            id: perm.id._id
+                        })
+                    }
+                }
+            } )
+
+            permissions = newPerms
+        }
+
         // create a new channel
         const channel = new Channel({
             name,
@@ -227,13 +265,7 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
             parent,
             position: nextChannelPos,
             server: guildId,
-            permissions : {
-                roles: {
-                    allow: 70508330735680,
-                    deny: 0,
-                    id: guild.everyone_role
-                }
-            } 
+            permissions
         })
 
         // save the new channel to the database
@@ -258,8 +290,47 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
             }
         }
 
+        const channelsPerms = await Channel.findById(channel._id)
+            .select('permissions')
+                .populate([{
+                    path: 'permissions.users.id',
+                    select: 'username avatar'
+                }, {
+                    path: 'permissions.roles.id',
+                    select: 'name color'
+                }])
+
+        const rolesPerms = channelsPerms.permissions.roles.map( c => {
+            return {
+                channel: channel._id.toString(),
+                permission: {
+                    allow: c.allow,
+                    deny: c.deny,
+                    type: c._type,
+                    id: c.id
+                }
+            }
+        } )
+
+        const usersPerms = channelsPerms.permissions.users.map( c => {
+            return {
+                channel: channel._id.toString(),
+                permission: {
+                    allow: c.allow,
+                    deny: c.deny,
+                    type: c._type,
+                    id: c.id
+                }
+            }
+        } )
+
+        const sortedPerms = [...rolesPerms, ...usersPerms]
+
+        sortedPerms.forEach( r => {
+            req.io.to(`guild:${guildId}`).emit('PERMISSION_UPDATE', r)
+        } )
+
         req.io.to(`guild:${guildId}`).emit('CHANNEL_CREATE', channel)
-        req.io.to(`guild:${guildId}`).emit('PERMISSION_UPDATE', updatesRes)
 
         res.status(201).json( channel )
     } catch (error) {
@@ -272,7 +343,11 @@ router.post( '/:guild/channels', authJwt, async (req, res) => {
 router.get('/members', authJwt, async (req, res) => {
     try {
         const userId = req.user._id.toString()
-        const allUserProfiles = await GuildUserProfiles.find({ user: userId })
+
+        const fullUserGuildsProfiles = await GuildUserProfiles.find({ user: userId }, 'guild')
+        const fullUserGuildsIds = fullUserGuildsProfiles.map(g => g.guild.toString())
+        const allUserProfiles = await GuildUserProfiles.find({ guild: { $in: fullUserGuildsIds } })
+
         res.status(200).json( allUserProfiles )
     } catch (error) {
         console.error(error)
@@ -480,5 +555,119 @@ router.patch('/:guildId/members/@me', authJwt, async (req, res) => {
         res.status(500).send({ message: 'Internal server error' })
     }
 })
+
+// create guild role
+router.post( '/:guildId/roles', authJwt, async (req, res) => {
+    try {
+        const { name = 'new role', color = 0, permissions = 0 } = req?.body || {}
+
+        const roleColor = color === 0 ? 10070709 : isEncodedColor(color) ? color : 10070709
+
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const guild = await Guild.findById(guildId)
+        if(!guild) return res.status(400).json({ message: 'Guild not found' })
+
+        const requiredPermissions = ['MANAGE_ROLES']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
+
+        const newRole = await Role.create({
+            name,
+            color: roleColor,
+            server: guildId,
+            permissions
+        })
+
+        guild.roles.addToSet(newRole._id)
+        await guild.save()
+
+        req.io.to(`guild:${guildId}`).emit('ROLE_CREATE', newRole)
+
+        res.status(200).send( newRole )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// delete guild role
+router.delete( '/:guildId/roles/:roleId', authJwt, async (req, res) => {
+    try {
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+        const roleId = req.params.roleId
+        if (!db.mongoose.Types.ObjectId.isValid(roleId)) return res.status(400).json({ message: 'Invalid role id' })
+
+        const guildExists = await Guild.exists({_id: guildId})
+        if(!guildExists) return res.status(400).json({ message: 'Guild not found' })
+
+        const requiredPermissions = ['MANAGE_ROLES']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
+
+        await Role.findOneAndDelete( {_id: roleId} )
+
+        await Guild.findByIdAndUpdate(guildId, {
+            $pull: { roles: roleId }
+        })
+
+
+        req.io.to(`guild:${guildId}`).emit('ROLE_DELETE', { role: roleId, server: guildId })
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// edit guild role
+router.patch( '/:guildId/roles/:roleId', authJwt, async (req, res) => {
+    try {
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const roleId = req.params.roleId
+        if (!db.mongoose.Types.ObjectId.isValid(roleId)) return res.status(400).json({ message: 'Invalid role id' })
+
+        const requiredPermissions = ['MANAGE_ROLES']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
+
+        const guild = await Guild.findById(guildId)
+        if(!guild) return res.status(400).json({ message: 'Guild not found' })
+
+        const role = await Role.findById(roleId)
+        if(!role) return res.status(400).json({ message: 'Role not found' })
+
+
+        const updatedRole = req?.body || {}
+        const validatedFields = {}
+
+        if( isEncodedColor(updatedRole?.color) ) {
+            validatedFields.color = updatedRole.color
+        }
+
+        if( typeof updatedRole.name === 'string' && updatedRole.name.trim().length > 0 ) {
+            validatedFields.name = updatedRole.name
+        }
+
+        if( !isNaN(updatedRole.permissions) ) {
+            const decodedPerms = decodePermissions(updatedRole.permissions)
+            const reEncodedPerms = encodePermissions(decodedPerms)
+            validatedFields.permissions = reEncodedPerms
+        }
+
+        const newRole = await Role.findOneAndUpdate({_id: roleId}, validatedFields, {new: true})
+
+        req.io.to(`guild:${guildId}`).emit('ROLE_UPDATE', newRole)
+
+        res.status(200).send( newRole )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
 
 module.exports = router
