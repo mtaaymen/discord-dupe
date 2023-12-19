@@ -670,4 +670,81 @@ router.patch( '/:guildId/roles/:roleId', authJwt, async (req, res) => {
     }
 } )
 
+// add members to guild role
+router.patch( '/:guildId/roles/:roleId/members', authJwt, async (req, res) => {
+    try {
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const roleId = req.params.roleId
+        if (!db.mongoose.Types.ObjectId.isValid(roleId)) return res.status(400).json({ message: 'Invalid role id' })
+
+
+
+        const requiredPermissions = ['MANAGE_ROLES']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
+
+        const guild = await Guild.findById(guildId)
+        if(!guild) return res.status(400).json({ message: 'Guild not found' })
+
+        const role = await Role.findById(roleId)
+        if(!role) return res.status(400).json({ message: 'Role not found' })
+
+
+        const { member_ids } = req.body
+
+        if( !Array.isArray(member_ids) || !member_ids.length ) return res.status(403).json({ error: 'Invalid request data.' })
+        
+        const filteredMemberIds = member_ids.filter( mId => db.mongoose.Types.ObjectId.isValid(mId) )
+        const verifiedMembers = await User.find({ _id: { $in: filteredMemberIds } }, '_id')
+        const mappedMemberIds = verifiedMembers.map( m => m._id )
+
+        const newRole = await Role.findOneAndUpdate({_id: roleId}, { $push: { members: { $each: mappedMemberIds } } }, {new: true})
+
+        req.io.to(`guild:${guildId}`).emit('ROLE_UPDATE', newRole)
+
+        res.status(200).send( newRole )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
+// remove member to guild role
+router.delete( '/:guildId/roles/:roleId/members/:memberId', authJwt, async (req, res) => {
+    try {
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const roleId = req.params.roleId
+        if (!db.mongoose.Types.ObjectId.isValid(roleId)) return res.status(400).json({ message: 'Invalid role id' })
+
+        const memberId = req.params.memberId
+        if (!db.mongoose.Types.ObjectId.isValid(memberId)) return res.status(400).json({ message: 'Invalid member id' })
+
+        const requiredPermissions = ['MANAGE_ROLES']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to create channels.' })
+
+        const guild = await Guild.findById(guildId)
+        if(!guild) return res.status(400).json({ message: 'Guild not found' })
+
+        const role = await Role.findById(roleId)
+        if(!role) return res.status(400).json({ message: 'Role not found' })
+
+        const member = await User.findById(memberId)
+        if(!member) return res.status(400).json({ message: 'Member not found' })
+
+        const newRole = await Role.findOneAndUpdate({_id: roleId}, { $pull: { members: memberId } }, {new: true})
+
+        req.io.to(`guild:${guildId}`).emit('ROLE_UPDATE', newRole)
+
+        res.status(200).send( newRole )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+} )
+
 module.exports = router

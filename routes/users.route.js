@@ -733,12 +733,12 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                     ],
                     permissions: {
                         users: [{
-                            allow: 70508330735680,
+                            allow: 70508330736704,
                             deny: 0,
                             id: receiverId
                         },
                         {
-                            allow: 70508330735680,
+                            allow: 70508330736704,
                             deny: 0,
                             id: userId
                         }]
@@ -764,7 +764,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                         channel: newDMChannel._id.toString(),
                         permission: {
                             type: 1,
-                            allow: 70508330735680,
+                            allow: 70508330736704,
                             deny: 0,
                             id: {
                                 _id: participant._id.toString(),
@@ -799,7 +799,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
         const channelParticipants = [userId, ...participants]
         const permissions = participants.map( participant => {
             return {
-                allow: 70508330735680,
+                allow: 70508330736704,
                 deny: 0,
                 id: participant
             }
@@ -850,7 +850,7 @@ router.post( '/@me/channels', authJwt, async (req, res) => {
                 channel: newGroupDMChannel._id.toString(),
                 permission: {
                     type: 1,
-                    allow: 70508330735680,
+                    allow: 70508330736704,
                     deny: 0,
                     id: {
                         _id: participant._id.toString(),
@@ -920,12 +920,12 @@ router.post('/@me/relationships', authJwt, async (req, res) => {
                     ],
                     permissions: {
                         users: [{
-                            allow: 70508330735680,
+                            allow: 70508330736704,
                             deny: 0,
                             id: userId
                         },
                         {
-                            allow: 70508330735680,
+                            allow: 70508330736704,
                             deny: 0,
                             id: senderId
                         }]
@@ -1069,12 +1069,12 @@ router.put('/@me/relationships/:senderId/accept', authJwt, async (req, res) => {
                 ],
                 permissions: {
                     users: [{
-                        allow: 70508330735680,
+                        allow: 70508330736704,
                         deny: 0,
                         id: receiverId
                     },
                     {
-                        allow: 70508330735680,
+                        allow: 70508330736704,
                         deny: 0,
                         id: senderId
                     }]

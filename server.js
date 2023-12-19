@@ -54,6 +54,7 @@ const Badges = db.badges
 const GuildUserProfiles = db.guildUserProfiles
 const Guild = db.guild
 const Role = db.role
+const Channel = db.channel
 
 db.mongoose.set('strictQuery', false)
 
@@ -149,6 +150,11 @@ db.mongoose
 
             /*const allGrpChannels = await Channel.find({isGroup: true})
             for( const channel of allGrpChannels ) {
+                await Channel.findByIdAndRemove(channel._id)
+                console.log(channel._id, 'removed')
+            }*/
+            /*const allDmChannels = await Channel.find({type: "dm"})
+            for( const channel of allDmChannels ) {
                 await Channel.findByIdAndRemove(channel._id)
                 console.log(channel._id, 'removed')
             }*/

@@ -145,7 +145,7 @@ router.put('/:channelId/participants/:participantId', authJwt, async (req, res) 
             if( !channel.permissions.find( permission => permission.id.toString() === participantId ) ) {
                 channel.permissions.push({
                     _type: 1,
-                    allow: 70508330735680,
+                    allow: 70508330736704,
                     deny: 0,
                     id: participantId
                 })
@@ -489,7 +489,7 @@ router.get('/:channel/messages', async (req, res) => {
         const messages = await Message.find(query)
             .sort({ _id: -1 })
             .limit(limit)
-            .select('content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt')
+            .select('content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt mentions')
             .populate({
                 path: 'hasReply',
                 select: 'content author'
@@ -554,7 +554,7 @@ const setRateLimit = async (req, res, next) => {
 // create message
 router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async (req, res) => {
         try {
-            const { content, hasReply, toUser } = req.body
+            const { mentions, content, hasReply, toUser } = req.body
             let { channelId } = req.params
             const authorId = req.user._id.toString()
             const user = await User.findById(authorId)
@@ -575,11 +575,11 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                         ],
                         permissions: {
                             users: [{
-                                allow: 70508330735680,
+                                allow: 70508330736704,
                                 deny: 0,
                                 id: authorId
                             }, {
-                                allow: 70508330735680,
+                                allow: 70508330736704,
                                 deny: 0,
                                 id: channelId
                             }]
@@ -603,7 +603,7 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                             channel: channel._id.toString(),
                             permission: {
                                 type: 1,
-                                allow: 70508330735680,
+                                allow: 70508330736704,
                                 deny: 0,
                                 id: {
                                     _id: participant._id.toString(),
@@ -615,8 +615,6 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                         sendToAllUserIds(req.io, usersRecievedChannel, 'PERMISSION_UPDATE', permission) 
                     }
 
-
-                    
                     sendToAllUserIds(req.io, usersRecievedChannel, 'CHANNEL_CREATE', populatedDMChannel)
                 }
             } else {
@@ -661,6 +659,23 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 }
             }
 
+            let mentionsList = []
+
+            if (Array.isArray(mentions)) {
+                const mentionRegex = /<@(\w+)>/g
+                const matches = content.match(mentionRegex)
+            
+                if (matches) {
+                    const existingIds = new Set(matches.map(match => match.substring(2, match.length - 1)))
+            
+                    const validIds = Array.from(existingIds).filter(id => db.mongoose.Types.ObjectId.isValid(id))
+            
+                    if (validIds.length > 0) {
+                        const foundUsers = await User.find({ _id: { $in: validIds } }, '_id')
+                        mentionsList = foundUsers.map(u => u._id)
+                    }
+                }
+            }
     
             const message = await Message.create({
                 content,
@@ -668,7 +683,8 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 channel: channelId,
                 hasReply,
                 ...(channel?.server && { server: channel.server._id.toString() }),
-                type: 0
+                type: 0,
+                mentions: mentionsList
             })
         
             // Add the message to the channel's messages array
@@ -684,8 +700,8 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 await GuildUserProfiles.updateOne(
                     { guild: channel.server, user: authorId },
                     {
-                    $set: { lastActive: Date.now() },
-                    $inc: { messages_count: 1 }
+                        $set: { lastActive: Date.now() },
+                        $inc: { messages_count: 1 }
                     }
                 )
             }
