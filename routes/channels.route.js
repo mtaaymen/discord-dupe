@@ -2,12 +2,47 @@ const express = require('express')
 const rateLimit = require('express-rate-limit')
 const router = express.Router()
 
+const metascraper = require('metascraper')([
+    require('metascraper-title')(),
+    require('metascraper-description')(),
+    require('metascraper-image')(),
+    require('metascraper-url')(),
+])
+
 const { authJwt, messageRateLimiters } = require('../middlewares')
 const { checkChannelPermissions } = require('../services')
 const { unsubscribeAllUsers, sendToAllUserIds } = require('../sockets/helpers')
 
 const messageRLs = messageRateLimiters() 
 
+
+async function getLinkData(url) {
+    try {
+        const response = await fetch(url);
+        const html = await response.text();
+    
+        const metadata = await metascraper({ html, url });
+
+        return {
+            title: metadata.title,
+            description: metadata.description,
+            thumbnail: metadata.image,
+            url: metadata.url
+        };
+    } catch (error) {
+        return null
+    }
+}
+
+function findLinks(text) {
+    // Regular expression to match URLs
+    const urlPattern = /https?:\/\/\S+|www\.\S+/gi;
+
+    // Find all matches in the text
+    const matches = text.match(urlPattern);
+
+    return matches || [];
+}
 
 
 const db = require("../models")
@@ -676,7 +711,28 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                     }
                 }
             }
-    
+
+            const embedsList = []
+
+            const foundLinks = findLinks(content);
+            
+            const promises = foundLinks.map(async (link) => {
+                const linkData = await getLinkData(link)
+                if (linkData) {
+                    embedsList.push({
+                        description: linkData.description,
+                        thumbnail: {
+                            url: linkData.thumbnail,
+                        },
+                        title: linkData.title,
+                        type: "link",
+                        url: linkData.url
+                    })
+                }
+            })
+            
+            await Promise.all(promises)
+
             const message = await Message.create({
                 content,
                 author: authorId,
@@ -684,7 +740,8 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 hasReply,
                 ...(channel?.server && { server: channel.server._id.toString() }),
                 type: 0,
-                mentions: mentionsList
+                mentions: mentionsList,
+                embeds: embedsList
             })
         
             // Add the message to the channel's messages array

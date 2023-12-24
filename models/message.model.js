@@ -34,7 +34,9 @@ const Message = mongoose.model(
             size: Number,
         }],
         embeds: [{
-            type: String,
+            type: {
+                type: String
+            },
             title: String,
             description: String,
             url: String,
