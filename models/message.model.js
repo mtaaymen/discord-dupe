@@ -79,6 +79,10 @@ const Message = mongoose.model(
             type: Schema.Types.ObjectId,
             ref: 'User',
         }],
+        mention_roles: [{
+            type: Schema.Types.ObjectId,
+            ref: 'Role',
+        }],
         mention_everyone: {
             type: Boolean,
             default: false

@@ -524,11 +524,16 @@ router.get('/:channel/messages', async (req, res) => {
         const messages = await Message.find(query)
             .sort({ _id: -1 })
             .limit(limit)
-            .select('content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt mentions')
-            .populate({
-                path: 'hasReply',
-                select: 'content author'
-            })
+            .select('content channel author attachments embeds reactions pinned editedTimestamp deleted deletedTimestamp createdAt mention_everyone mentions mention_roles')
+            .populate([
+                {
+                    path: 'hasReply',
+                    select: 'content author'
+                }, {
+                    path: 'mention_roles',
+                    select: 'name color'
+                }
+            ])
             .exec()
 
             const totalMessages = await Message.countDocuments(query)
@@ -695,22 +700,37 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
             }
 
             let mentionsList = []
-
-            if (Array.isArray(mentions)) {
-                const mentionRegex = /<@(\w+)>/g
-                const matches = content.match(mentionRegex)
-            
-                if (matches) {
-                    const existingIds = new Set(matches.map(match => match.substring(2, match.length - 1)))
-            
-                    const validIds = Array.from(existingIds).filter(id => db.mongoose.Types.ObjectId.isValid(id))
-            
-                    if (validIds.length > 0) {
-                        const foundUsers = await User.find({ _id: { $in: validIds } }, '_id')
-                        mentionsList = foundUsers.map(u => u._id)
-                    }
+            const mentionRegex = /<@(\w+)>/g
+            const mentionMatches = content.match(mentionRegex)
+        
+            if (mentionMatches) {
+                const existingIds = new Set(mentionMatches.map(match => match.substring(2, match.length - 1)))
+        
+                const validIds = Array.from(existingIds).filter(id => db.mongoose.Types.ObjectId.isValid(id))
+        
+                if (validIds.length > 0) {
+                    const foundUsers = await User.find({ _id: { $in: validIds } }, '_id')
+                    mentionsList = foundUsers.map(u => u._id)
                 }
             }
+
+            
+            let roleMentionsList = []
+            const roleMentionRegex = /<@&(\w+)>/g
+            const roleMentionMatches = content.match(roleMentionRegex)
+
+            if (roleMentionMatches) {
+                const existingIds = new Set(roleMentionMatches.map(match => match.substring(3, match.length - 1)))
+                const validIds = Array.from(existingIds).filter(id => db.mongoose.Types.ObjectId.isValid(id))
+                if (validIds.length > 0) {
+                    const foundRoles = await Role.find({ _id: { $in: validIds } }, '_id')
+                    roleMentionsList = foundRoles.map(u => u._id)
+                }
+            }
+
+            const everyoneMentionRegex = /@(here|everyone)/g
+            const mention_everyone = everyoneMentionRegex.test(content)
+            
 
             const embedsList = []
 
@@ -741,6 +761,8 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 ...(channel?.server && { server: channel.server._id.toString() }),
                 type: 0,
                 mentions: mentionsList,
+                mention_roles: roleMentionsList,
+                mention_everyone,
                 embeds: embedsList
             })
         
@@ -766,10 +788,15 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
         
             // Populate the message object with the author's username and the channel's name
             const populatedMessage = await Message.findById(message._id)
-                .populate({
-                    path: 'hasReply',
-                    select: 'content author'
-                })
+                .populate([
+                    {
+                        path: 'hasReply',
+                        select: 'content author'
+                    }, {
+                        path: 'mention_roles',
+                        select: 'name color'
+                    }
+                ])
 
             req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
             
