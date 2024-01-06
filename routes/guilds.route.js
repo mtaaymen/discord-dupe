@@ -659,6 +659,14 @@ router.patch( '/:guildId/roles/:roleId', authJwt, async (req, res) => {
             validatedFields.permissions = reEncodedPerms
         }
 
+        if( typeof updatedRole?.hoist === 'boolean' ) {
+            validatedFields.hoist = updatedRole.hoist
+        }
+
+        if( typeof updatedRole?.mentionable === 'boolean' ) {
+            validatedFields.mentionable = updatedRole.mentionable
+        }
+
         const newRole = await Role.findOneAndUpdate({_id: roleId}, validatedFields, {new: true})
 
         req.io.to(`guild:${guildId}`).emit('ROLE_UPDATE', newRole)
