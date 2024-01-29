@@ -8,7 +8,6 @@ const Message = mongoose.model(
         type: Number,
         content: {
             type: String,
-            required: true,
         },
         author: {
             type: Schema.Types.ObjectId,
@@ -29,9 +28,8 @@ const Message = mongoose.model(
             ref: 'Message'
         },
         attachments: [{
-            url: String,
-            contentType: String,
-            size: Number,
+            type: Schema.Types.ObjectId,
+            ref: 'Attachment'
         }],
         embeds: [{
             type: {

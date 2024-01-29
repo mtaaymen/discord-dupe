@@ -55,6 +55,7 @@ const GuildUserProfiles = db.guildUserProfiles
 const Guild = db.guild
 const Role = db.role
 const Channel = db.channel
+const Message = db.message
 
 db.mongoose.set('strictQuery', false)
 
@@ -72,7 +73,10 @@ db.mongoose
         initServer()
 
         try {
-            /*function encodeColor(rgbOrHex) {
+            /*await Message.deleteMany({ content: "" })
+            console.log('deleted all empty messages')
+            
+            function encodeColor(rgbOrHex) {
                 if (typeof rgbOrHex === 'string') {
                     if (rgbOrHex[0] === '#') {
                         rgbOrHex = hexToRgb(rgbOrHex)
@@ -242,14 +246,14 @@ const initServer = () => {
         next()
     })
     
-    //app.set( 'trust proxy', false )
+    app.set( 'trust proxy', false )
+    app.use( /*express.text(),*/ express.json() )
+    app.use(express.raw({ type: 'application/octet-stream', limit: '50mb' }))
+
     app.use( bodyParser.urlencoded({ extended: true }) )
-    app.use( bodyParser.json() )
     app.use( cookieParser() )
-    app.use( express.json() )
     app.use( cors(corsOptions) )
     app.use( express.static( __dirname + '/public' ) )
-
 
     const avatarRoute = require( './routes/avatar.route' )
     const usersRoute = require( './routes/users.route' )
@@ -259,6 +263,7 @@ const initServer = () => {
     //const invitesRoute = require('./routes/invites.route')
     const storeRoute = require('./routes/store.route')
     const adminRoute = require('./routes/admin.route')
+    const attachmentsRoute = require('./routes/attachments.route')
 
     app.use( '/avatar', avatarRoute )
     app.use( '/users', usersRoute )
@@ -268,6 +273,7 @@ const initServer = () => {
     //app.use( '/invites', invitesRoute )
     app.use( '/store', storeRoute )
     app.use( '/admin', adminRoute )
+    app.use( '/attachments', attachmentsRoute )
 
     //eth transactions checker
     setInterval(checkTransactionStatus, 5000, io)

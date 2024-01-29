@@ -1,6 +1,12 @@
 const express = require('express')
 const rateLimit = require('express-rate-limit')
 const router = express.Router()
+const crypto = require('crypto')
+const path = require('path')
+const fs = require('fs')
+const FileType = require('file-type');
+const sharp = require('sharp');
+
 
 const metascraper = require('metascraper')([
     require('metascraper-title')(),
@@ -53,6 +59,8 @@ const Channel = db.channel
 const Role = db.role
 //const Invite = db.invite
 const Message = db.message
+const Attachment = db.attachment
+
 
 // get channel by id
 router.get('/:channelId', authJwt, async (req, res) => {
@@ -532,14 +540,39 @@ router.get('/:channel/messages', async (req, res) => {
                 }, {
                     path: 'mention_roles',
                     select: 'name color'
+                }, {
+                    path: 'attachments',
+                    select: 'filename size extension channel format width height'
                 }
             ])
             .exec()
 
+
+            const newMessages = []
+            messages.forEach( message => {
+                const messageObject = message.toObject()
+                const newAttachments = messageObject.attachments.map( attachment => {
+                    return {
+                        filename: attachment.filename,
+                        size: attachment.size,
+                        url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                        _id: attachment._id,
+                        height: attachment.height,
+                        width: attachment.width,
+                        format: attachment.format
+                    }
+                } )
+
+                messageObject.attachments = newAttachments
+                newMessages.push(messageObject)
+            } )
+
+            
+
             const totalMessages = await Message.countDocuments(query)
             const hasNextPage = totalMessages > limit
         
-        res.json({ messages: messages.reverse(), hasNextPage })
+        res.json({ messages: newMessages.reverse(), hasNextPage })
     } catch (error) {
         console.error(error)
         res.status(500).json({ error: 'Internal Server Error' })
@@ -594,9 +627,14 @@ const setRateLimit = async (req, res, next) => {
 // create message
 router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async (req, res) => {
         try {
-            const { mentions, content, hasReply, toUser } = req.body
+            const { attachments, content, hasReply, toUser } = req.body
             let { channelId } = req.params
             const authorId = req.user._id.toString()
+
+            if ((typeof content === 'string' && content.trim() === "") && (!Array.isArray(attachments) || attachments.length === 0)) {
+                return res.status(404).send({ message: 'Unable to send empty message' })
+            }
+
             const user = await User.findById(authorId)
 
             let channel
@@ -733,10 +771,9 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
             
 
             const embedsList = []
-
             const foundLinks = findLinks(content);
             
-            const promises = foundLinks.map(async (link) => {
+            const linksDataPromises = foundLinks.map(async (link) => {
                 const linkData = await getLinkData(link)
                 if (linkData) {
                     embedsList.push({
@@ -751,19 +788,38 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 }
             })
             
-            await Promise.all(promises)
+            await Promise.all(linksDataPromises)
+
+            const selectedAttachments = []
+            if( attachments && Array.isArray(attachments) ) {
+                for( let attachment of attachments ) {
+                    if( typeof attachment?.uploaded_filename !== 'string' ) continue
+                    if( !attachment.uploaded_filename.includes('/') ) continue
+                    const attachmentFileNameSplits = attachment.uploaded_filename.split('/')
+                    const attachmentUuid = attachmentFileNameSplits?.[0]
+                    const attachmentFileName = attachmentFileNameSplits?.[1]
+
+                    if( !isValidUuidFormat(attachmentUuid) ) continue
+                    if( !hasFileFormat(attachmentFileName) ) continue
+
+                    const attachmentDoc = await Attachment.findOne({uuid: attachmentUuid})
+                    if(!attachmentDoc) continue
+                    selectedAttachments.push(attachmentDoc._id)
+                }
+            }
 
             const message = await Message.create({
                 content,
                 author: authorId,
                 channel: channelId,
                 hasReply,
-                ...(channel?.server && { server: channel.server._id.toString() }),
+                server: channel?.server,
                 type: 0,
                 mentions: mentionsList,
                 mention_roles: roleMentionsList,
                 mention_everyone,
-                embeds: embedsList
+                embeds: embedsList,
+                attachments: selectedAttachments
             })
         
             // Add the message to the channel's messages array
@@ -795,18 +851,40 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                     }, {
                         path: 'mention_roles',
                         select: 'name color'
+                    }, {
+                        path: 'attachments',
+                        select: 'filename size extension channel format width height'
                     }
                 ])
+                .exec()
 
-            req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', populatedMessage)
+            const newAttachments = populatedMessage.attachments.map( attachment => {
+                return {
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                    _id: attachment._id,
+                    height: attachment.height,
+                    width: attachment.width,
+                    format: attachment.format
+                }
+            } )
+
+            const messageObject = populatedMessage.toObject()
+            messageObject.attachments = newAttachments
+
+            //const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
+            //const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
+
+            req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', messageObject)
             
             // Send the populated message object in the response
-            res.status(201).json(populatedMessage)
+            res.status(201).json(messageObject)
         } catch (error) {
             console.error(error)
             res.status(500).json({ message: 'Internal server error' })
         }
-    })
+})
 
 // delete message
 router.delete('/:channelId/messages/:messageId', authJwt, async (req, res) => {
@@ -871,16 +949,196 @@ router.patch('/:channelId/messages/:messageId', authJwt, async (req, res) => {
         if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to edit this message.' })
 
         // update the channel
-        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true }).populate({
-            path: 'hasReply',
-            select: 'content author'
-        })
+        const updatedMessage = await Message.findByIdAndUpdate(messageId, { ...updates, editedTimestamp: Date.now() }, { new: true })
+            .populate([
+                {
+                    path: 'hasReply',
+                    select: 'content author'
+                }, {
+                    path: 'mention_roles',
+                    select: 'name color'
+                }, {
+                    path: 'attachments',
+                    select: 'filename size extension channel format width height'
+                }
+            ])
+            .exec()
+
+        const newUpdatedMessageAttachments = updatedMessage.attachments.map( attachment => {
+            return {
+                filename: attachment.filename,
+                size: attachment.size,
+                url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                _id: attachment._id,
+                height: attachment.height,
+                width: attachment.width,
+                format: attachment.format
+            }
+        } )
+
+        const updatedMessageObject = updatedMessage.toObject()
+        updatedMessageObject.attachments = newUpdatedMessageAttachments
 
         if (!updatedMessage) return res.status(404).send('Message not found')
 
-        req.io.to(`channel:${channelId}`).emit('MESSAGE_UPDATE', updatedMessage)
+        req.io.to(`channel:${channelId}`).emit('MESSAGE_UPDATE', updatedMessageObject)
 
-        res.status(200).json( updatedMessage )
+        res.status(200).json( updatedMessageObject )
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+
+function hasFileFormat(filename) {
+    var formatRegex = /^[^.]+(\.[^.]+)?$/;
+
+    return formatRegex.test(filename);
+}
+
+
+function isValidUuidFormat(uuid) {
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    return uuidRegex.test(uuid);
+}
+
+function uuidv4() {
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    )
+}
+
+// request attachment
+router.post('/:channelId/attachments', authJwt, async (req, res) => {
+    try {
+        const { channelId } = req.params
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+
+        const channelExists = await Channel.exists({_id: channelId})
+        if(!channelExists) return res.status(400).json({ message: 'Nhannel not found.' })
+
+        const { files } = req.body
+        if( !Array.isArray(files) ) return res.status(400).json({ message: 'No files found.' })
+
+        const filteredFiles = files.filter( file => typeof file === 'object' )
+        if(!filteredFiles.length) return res.status(400).json({ message: 'No files found.' })
+
+        const resultFiles = []
+        for( const file of files ) {
+            let uniqueUUID = false
+            let newUUID
+
+            while (!uniqueUUID) {
+                newUUID = uuidv4()
+
+                const existingDocument = await Attachment.exists({ uuid: newUUID })
+                if (!existingDocument) uniqueUUID = true
+            }
+
+            const upload_filename = `${newUUID}/${file.filename}`
+
+            const newAttachment = await Attachment.create( {
+                filename: file.filename,
+                uuid: newUUID,
+                size: file.size,
+                uploader: req.user._id,
+                channel: channelId
+            } )
+
+            // files storage mangment logic here
+            //const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
+            const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
+
+
+            const fileObj = {
+                upload_url,
+                upload_filename,
+                id: file.id
+            }
+
+            resultFiles.push(fileObj)
+        }
+
+
+        res.status(200).send({ attachments: resultFiles })
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+function getMagicNumber(buffer, bytesToRead = 4) {
+    const hexString = buffer.slice(0, bytesToRead).toString('hex');
+    return hexString;
+}
+
+async function getImageSize(fileContent) {
+    try {
+        const { width, height } = await sharp(fileContent).metadata();
+        return { width, height }
+    } catch (error) {
+        console.error('Error getting image size:', error);
+        return null;
+    }
+}
+
+router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => {
+    try {
+        const fileContent = req.body
+        const { upload_id } = req.query
+        const { uuid, filename } = req.params
+
+        if (req.aborted) return res.status(400).send('Request aborted by the client.')
+
+        if (!fileContent || !uuid || !filename ) return res.status(400).send('No file content provided.')
+
+        if( !isValidUuidFormat(uuid) ) return res.status(400).json({ message: 'Invalid upload data' })
+
+        if (!db.mongoose.Types.ObjectId.isValid(upload_id)) return res.status(400).json({ message: 'Invalid upload id' })
+
+        const attachment = await Attachment.findOne({_id: upload_id, uuid, filename})
+
+        if( attachment.filePath ) return res.status(400).json({ message: 'Invalid upload data' })
+
+        if( !attachment ) return res.status(400).json({ message: 'Invalid upload data' })
+
+        const magicNumber = getMagicNumber(fileContent)
+
+        const fileInfo = await FileType.fromBuffer(fileContent)
+        if (!fileInfo) return res.status(400).json({ message: 'Unable to determine file format.' })
+    
+        const fileFormat = fileInfo.ext
+        const fileMime = fileInfo.mime
+
+        if( !fileMime.startsWith('image') ) {
+            await Attachment.findOneAndDelete({_id: attachment._id})
+            return res.status(400).json({ message: 'Unsupported file type (coming soon).' })
+        }
+
+        const fileSize = Buffer.byteLength(fileContent, 'utf8')
+    
+        const filePath = `./media/attachments/${uuid}-${filename}`
+        fs.writeFileSync(filePath, fileContent)
+
+        await Attachment.findOneAndUpdate( {_id: upload_id}, {
+            filePath: `${uuid}-${filename}`,
+            format: fileFormat,
+            content_type: fileMime,
+            extension: magicNumber,
+            size: fileSize
+        } )
+
+        if (fileMime.startsWith('image')) {
+            const imageSizes = await getImageSize(fileContent)
+
+            await Attachment.findOneAndUpdate( {_id: upload_id}, {
+                height: imageSizes.height,
+                width: imageSizes.width
+            } )
+        }
+    
+        res.status(200).end()
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: 'Internal server error' })
