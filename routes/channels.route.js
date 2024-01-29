@@ -1117,6 +1117,9 @@ router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => 
 
         const fileSize = Buffer.byteLength(fileContent, 'utf8')
     
+        const fileDirectory = './media/attachments'
+        if (!fs.existsSync(fileDirectory)) fs.mkdirSync(fileDirectory, { recursive: true })
+
         const filePath = `./media/attachments/${uuid}-${filename}`
         fs.writeFileSync(filePath, fileContent)
 
