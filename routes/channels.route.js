@@ -1046,7 +1046,7 @@ router.post('/:channelId/attachments', authJwt, async (req, res) => {
             } )
 
             // files storage mangment logic here
-            const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
+            const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
             //const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
 
 
