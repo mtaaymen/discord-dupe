@@ -555,7 +555,8 @@ router.get('/:channel/messages', async (req, res) => {
                     return {
                         filename: attachment.filename,
                         size: attachment.size,
-                        url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                        //url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                        url: `https://discord-dupe.onrender.com/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                         _id: attachment._id,
                         height: attachment.height,
                         width: attachment.width,
@@ -862,7 +863,8 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 return {
                     filename: attachment.filename,
                     size: attachment.size,
-                    url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                    //url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                    url: `https://discord-dupe.onrender.com/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                     _id: attachment._id,
                     height: attachment.height,
                     width: attachment.width,
@@ -872,9 +874,6 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
 
             const messageObject = populatedMessage.toObject()
             messageObject.attachments = newAttachments
-
-            //const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
-            //const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
 
             req.io.to(`channel:${channelId}`).emit('MESSAGE_CREATE', messageObject)
             
@@ -1047,8 +1046,8 @@ router.post('/:channelId/attachments', authJwt, async (req, res) => {
             } )
 
             // files storage mangment logic here
-            //const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
-            const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
+            const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads?upload_id=${newAttachment._id.toString()}`
+            //const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
 
 
             const fileObj = {
