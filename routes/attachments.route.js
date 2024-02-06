@@ -34,7 +34,7 @@ router.get( '/:channelId/:attachmentId/:fileName' ,async (req, res) => {
         const filePath = `./media/attachments/${attachmentDoc.filePath}`
 
         if (fs.existsSync(filePath)) {
-            if(attachmentDoc.content_type.startsWith('image') && attachmentDoc.format !== 'gif') {
+            if(attachmentDoc?.content_type?.startsWith('image') && attachmentDoc?.format !== 'gif') {
                 let imageStream = fs.createReadStream(filePath)
                 if (width && height) {
                     imageStream = imageStream.pipe(sharp().resize(Number(width), Number(height)))
@@ -42,14 +42,21 @@ router.get( '/:channelId/:attachmentId/:fileName' ,async (req, res) => {
                 imageStream.pipe(res)
                 return
             }
+
+            if (!attachmentDoc?.content_type?.startsWith('image') && !attachmentDoc?.content_type?.startsWith('video')) {
+                const downloadFileName = encodeURIComponent(attachmentDoc.filename)
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName}"`)
+            }
             
             const fileStream = fs.createReadStream(filePath)
             fileStream.pipe(res)
         } else {
             await Attachment.findByIdAndDelete(attachmentDoc._id)
             const attachmentMessage = await Message.findOne({ attachments: attachmentDoc._id })
+            if( !attachmentMessage ) return res.status(404).send('File not found')
+
             const newMessageAttachments = attachmentMessage.attachments.filter( attachment => attachment.toString() !== attachmentDoc._id.toString() )
-            if( newMessageAttachments.length === 0 ) {
+            if( newMessageAttachments.length === 0 && attachmentMessage.content.trim().length === 0 ) {
                 await Message.findByIdAndDelete(attachmentMessage._id)
 
                 req.io.to(`channel:${channelId}`).emit('MESSAGE_DELETE',{
@@ -68,7 +75,7 @@ router.get( '/:channelId/:attachmentId/:fileName' ,async (req, res) => {
                             select: 'name color'
                         }, {
                             path: 'attachments',
-                            select: 'filename size extension channel format width height'
+                            select: 'filename size extension channel format width height content_type'
                         }
                     ])
                     .exec()
@@ -77,11 +84,12 @@ router.get( '/:channelId/:attachmentId/:fileName' ,async (req, res) => {
                     return {
                         filename: attachment.filename,
                         size: attachment.size,
-                        url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                        url: `${config.BASE_URL}/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                         _id: attachment._id,
                         height: attachment.height,
                         width: attachment.width,
-                        format: attachment.format
+                        format: attachment.format,
+                        content_type: attachment.content_type
                     }
                 } )
         

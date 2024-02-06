@@ -4,9 +4,9 @@ const router = express.Router()
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs')
-const FileType = require('file-type');
-const sharp = require('sharp');
-
+const FileType = require('file-type')
+const mimeTypes = require('mime-types')
+const sharp = require('sharp')
 
 const metascraper = require('metascraper')([
     require('metascraper-title')(),
@@ -52,6 +52,7 @@ function findLinks(text) {
 
 
 const db = require("../models")
+const config = require('../config')
 const GuildUserProfiles = db.guildUserProfiles
 const Guild = db.guild
 const User = db.user
@@ -65,15 +66,19 @@ const Attachment = db.attachment
 // get channel by id
 router.get('/:channelId', authJwt, async (req, res) => {
     try {
-        let { channelId } = req.params
+        const { channelId } = req.params
+        const userId = req.user._id.toString()
         if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
 
-        const user = await User.findById(req.user._id)
+        const user = await User.findById(userId)
 
-        const channel = await Channel.findById(channelId).populate('server', '_id')
+        const channel = await Channel.findById(channelId)
+            .populate('server', '_id')
         if( !channel ) return res.status(404).send({ message: 'Channel not found'})
 
-        if( channel.participants.includes( req.user._id.toString() ) && !user.channels.includes( channelId ) ) {
+        if( !channel.server && !channel.participants.includes( userId ) ) return res.status(404).send({ message: 'Channel not found'})
+
+        if( channel.participants.includes( userId ) && !user.channels.includes( channelId ) ) {
             user.channels.addToSet(channelId)
             await user.save()
         }
@@ -542,7 +547,7 @@ router.get('/:channel/messages', async (req, res) => {
                     select: 'name color'
                 }, {
                     path: 'attachments',
-                    select: 'filename size extension channel format width height'
+                    select: 'filename size extension channel format width height content_type'
                 }
             ])
             .exec()
@@ -555,12 +560,12 @@ router.get('/:channel/messages', async (req, res) => {
                     return {
                         filename: attachment.filename,
                         size: attachment.size,
-                        //url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
-                        url: `https://discord-dupe.onrender.com/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                        url: `${config.BASE_URL}/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                         _id: attachment._id,
                         height: attachment.height,
                         width: attachment.width,
-                        format: attachment.format
+                        format: attachment.format,
+                        content_type: attachment.content_type
                     }
                 } )
 
@@ -801,12 +806,16 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                     const attachmentFileName = attachmentFileNameSplits?.[1]
 
                     if( !isValidUuidFormat(attachmentUuid) ) continue
-                    if( !hasFileFormat(attachmentFileName) ) continue
+                    //if( !hasFileFormat(attachmentFileName) ) continue
 
                     const attachmentDoc = await Attachment.findOne({uuid: attachmentUuid})
                     if(!attachmentDoc) continue
                     selectedAttachments.push(attachmentDoc._id)
                 }
+            }
+
+            if ((typeof content === 'string' && content.trim() === "") && (!Array.isArray(selectedAttachments) || selectedAttachments.length === 0)) {
+                return res.status(404).send({ message: 'Unable to send empty message' })
             }
 
             const message = await Message.create({
@@ -854,7 +863,7 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                         select: 'name color'
                     }, {
                         path: 'attachments',
-                        select: 'filename size extension channel format width height'
+                        select: 'filename size extension channel format width height content_type'
                     }
                 ])
                 .exec()
@@ -863,12 +872,12 @@ router.post('/:channelId/messages', authJwt, setRateLimit, ...messageRLs, async 
                 return {
                     filename: attachment.filename,
                     size: attachment.size,
-                    //url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
-                    url: `https://discord-dupe.onrender.com/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                    url: `${config.BASE_URL}/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                     _id: attachment._id,
                     height: attachment.height,
                     width: attachment.width,
-                    format: attachment.format
+                    format: attachment.format,
+                    content_type: attachment.content_type
                 }
             } )
 
@@ -958,7 +967,7 @@ router.patch('/:channelId/messages/:messageId', authJwt, async (req, res) => {
                     select: 'name color'
                 }, {
                     path: 'attachments',
-                    select: 'filename size extension channel format width height'
+                    select: 'filename size extension channel format width height content_type'
                 }
             ])
             .exec()
@@ -967,11 +976,12 @@ router.patch('/:channelId/messages/:messageId', authJwt, async (req, res) => {
             return {
                 filename: attachment.filename,
                 size: attachment.size,
-                url: `http://localhost:3001/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
+                url: `${config.BASE_URL}/attachments/${attachment.channel.toString()}/${attachment._id}/${attachment.filename}?ex=${attachment.extension}&format=${attachment.format}`,
                 _id: attachment._id,
                 height: attachment.height,
                 width: attachment.width,
-                format: attachment.format
+                format: attachment.format,
+                content_type: attachment.content_type
             }
         } )
 
@@ -1046,8 +1056,7 @@ router.post('/:channelId/attachments', authJwt, async (req, res) => {
             } )
 
             // files storage mangment logic here
-            const upload_url = `https://discord-dupe.onrender.com/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
-            //const upload_url = `http://localhost:3001/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
+            const upload_url = `${config.BASE_URL}/channels/attachments-uploads/${upload_filename}?upload_id=${newAttachment._id.toString()}`
 
 
             const fileObj = {
@@ -1082,6 +1091,22 @@ async function getImageSize(fileContent) {
     }
 }
 
+function getFileDetails(filename) {
+    try {
+        const fileExtension = path.extname(filename).slice(1)
+        const mimeType = mimeTypes.lookup(fileExtension)
+        
+        if( !mimeType ) return null
+
+        return {
+            extension: fileExtension,
+            mime: mimeType
+        }
+    } catch (error) {
+         return null
+    }
+  }
+
 router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => {
     try {
         const fileContent = req.body
@@ -1098,22 +1123,14 @@ router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => 
 
         const attachment = await Attachment.findOne({_id: upload_id, uuid, filename})
 
-        if( attachment.filePath ) return res.status(400).json({ message: 'Invalid upload data' })
-
         if( !attachment ) return res.status(400).json({ message: 'Invalid upload data' })
+
+        if( attachment.filePath ) return res.status(400).json({ message: 'Invalid upload data' })
 
         const magicNumber = getMagicNumber(fileContent)
 
-        const fileInfo = await FileType.fromBuffer(fileContent)
-        if (!fileInfo) return res.status(400).json({ message: 'Unable to determine file format.' })
-    
-        const fileFormat = fileInfo.ext
-        const fileMime = fileInfo.mime
-
-        if( !fileMime.startsWith('image') ) {
-            await Attachment.findOneAndDelete({_id: attachment._id})
-            return res.status(400).json({ message: 'Unsupported file type (coming soon).' })
-        }
+        const fileInfo = getFileDetails(attachment.filename)
+        //if (!fileInfo) return res.status(400).json({ message: 'Unable to determine file format.' })
 
         const fileSize = Buffer.byteLength(fileContent, 'utf8')
     
@@ -1123,15 +1140,22 @@ router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => 
         const filePath = `./media/attachments/${uuid}-${filename}`
         fs.writeFileSync(filePath, fileContent)
 
-        await Attachment.findOneAndUpdate( {_id: upload_id}, {
+        let updateData = {
             filePath: `${uuid}-${filename}`,
-            format: fileFormat,
-            content_type: fileMime,
             extension: magicNumber,
             size: fileSize
-        } )
+        }
 
-        if (fileMime.startsWith('image')) {
+        if( fileInfo ) {
+            updateData = {
+                ...updateData,
+                format: fileInfo.extension,
+                content_type: fileInfo.mime
+            }
+        }
+        await Attachment.findOneAndUpdate( {_id: upload_id}, updateData )
+
+        if (fileInfo && fileInfo.mime.startsWith('image')) {
             const imageSizes = await getImageSize(fileContent)
 
             await Attachment.findOneAndUpdate( {_id: upload_id}, {

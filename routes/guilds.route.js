@@ -511,6 +511,103 @@ router.get( '/:guild/channels', authJwt, (req, res) => {
         .catch( err => res.status(500).send( { message: err } ) )
 } )
 
+const bools = {
+    true: true,
+    false: false,
+}
+
+function rearrangeItemsBasedOnOrder(mainArray, orderArray) {
+    const indexMap = new Map(orderArray.map((item, index) => [item, index]));
+
+    return mainArray.slice().sort((a, b) => {
+        const indexA = indexMap.get(a);
+        const indexB = indexMap.get(b);
+        return (indexA !== undefined ? indexA : Infinity) - (indexB !== undefined ? indexB : Infinity);
+    });
+}
+
+
+
+// update guild channels
+router.patch('/:guildId/channels', authJwt, async (req, res) => {
+    try {
+        const { with_order } = req.query
+
+        const channelsList = req.body
+        if(!Array.isArray(channelsList)) return res.status(400).json({ message: 'Invalid body data' })
+
+        const guildId = req.params.guildId
+        if (!db.mongoose.Types.ObjectId.isValid(guildId)) return res.status(400).json({ message: 'Invalid guild id' })
+
+        const requiredPermissions = ['MANAGE_CHANNELS']
+        const userHasPermission = await checkServerPermissions(req.user, guildId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to perform this action.' })
+
+        const guild = await Guild.findById(guildId)
+        if( !guild ) return res.status(404).send({ message: 'Guild not found'})
+
+        let newAddedChannels = [...guild.channels.map( c => c._id.toString() )]
+
+        const validatedChannels = []
+        const updatedChannelsParents = {}
+        for( let channel of channelsList ) {
+            if(!channel?._id) continue
+
+            if( !guild.channels.find( c => c._id.toString() === channel._id ) ) continue
+
+            const channelDoc = await Channel.findOne({_id: channel._id, server: guildId})
+            if(!channelDoc) continue
+
+            if(channel.parent || channel.parent === null) {
+                if( channel.parent === null ) {
+                    await Channel.findByIdAndUpdate(channel._id, {parent: null})
+
+                    updatedChannelsParents[channel._id] = {parent: null}
+                } else {
+                    const categoryExists = await Channel.exists({_id: channel.parent, type: 'category', server: guildId})
+                    if(categoryExists && channel.parent !== channelDoc?.parent?.toString()) {
+                        const stringGuildChannelIds = guild.channels.map( c => c._id.toString() )
+                        const channelIdIndex = stringGuildChannelIds.findIndex(item => item === channel._id)
+                        const categoryIdIndex = stringGuildChannelIds.findIndex(item => item === channel.parent)
+                        stringGuildChannelIds.splice(channelIdIndex, 1)
+                        stringGuildChannelIds.splice(categoryIdIndex, 0, channel._id)
+
+                        newAddedChannels = stringGuildChannelIds
+
+                        await Channel.findByIdAndUpdate(channel._id, {parent: channel.parent})
+
+                        updatedChannelsParents[channel._id] = {parent: channel.parent}
+                    }
+                }
+            }
+
+            validatedChannels.push(channelDoc)
+        }
+
+        if( bools[with_order] ) {
+            const stringGuildChannelIds = newAddedChannels
+            const stringOrderChannelIds = validatedChannels.map( c => c._id.toString() )
+
+            const rearrangedChannels = rearrangeItemsBasedOnOrder( stringGuildChannelIds, stringOrderChannelIds )
+
+            const updatesRes = {
+                guildId,
+                channelsOrder: rearrangedChannels,
+                channelsParents: updatedChannelsParents
+            }
+
+            await Guild.findByIdAndUpdate(guildId, { channels: rearrangedChannels })
+            
+            req.io.to(`guild:${guildId}`).emit('GUILD_UPDATE', updatesRes)
+        }
+    
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).send({ message: 'Internal server error' })
+    }
+})
+
 // update current guild member
 router.patch('/:guildId/members/@me', authJwt, async (req, res) => {
     try {

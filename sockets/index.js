@@ -88,9 +88,15 @@ module.exports = (io) => {
 
         socket.on('disconnect', () => {
             if (socket.decoded) {
-                onlineStatus( socket, socket.decoded.userId, "offline" )
+                const userId = socket.decoded.userId
+                const connectedSockets = io.sockets.sockets
+        
+                if (!connectedSockets.size || ![...connectedSockets.values()].some(sock => sock.decoded.userId === userId)) {
+                    onlineStatus(socket, userId, "offline")
+                }
             }
-            //console.log(`Socket ${socket.id} disconnected`)
+        
+            //console.log(`Socket ${socket.id} disconnected`);
             leaveRooms(socket, 'channel', socket["_channel"] || [])
             leaveRooms(socket, 'guild', socket["_guild"] || [])
         })
