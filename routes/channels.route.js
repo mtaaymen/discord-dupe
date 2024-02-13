@@ -1171,5 +1171,181 @@ router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => 
     }
 })
 
+const { findEmoji } = require('../services/emojies')
+
+// add reaction to messaage
+router.put('/:channelId/messages/:messageId/reactions/:emojiId/@me', authJwt, async (req, res) => {
+    try {
+        const {
+            channelId,
+            messageId,
+            emojiId
+        } = req.params
+
+        const userId = req.user._id
+
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+        if (!db.mongoose.Types.ObjectId.isValid(messageId)) return res.status(400).json({ message: 'Invalid message id' })
+
+        const channel = await Channel.findById(channelId)
+        if( !channel ) return res.status(400).json({ message: 'Channel not found' })
+
+        const message = await Message.findOne({ _id: messageId, channel: channelId })
+        if( !message ) return res.status(400).json({ message: 'Message not found' })
+
+        const requiredPermissions = ['ADD_REACTIONS']
+        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+        if( !userHasPermission ) return res.status(403).json({ error: 'You do not have permission to perform this action.' })
+
+        const foundReactionWithEmoji = message.reactions.find( reaction => decodeURIComponent(reaction.emoji) === decodeURIComponent(emojiId) )
+        if( foundReactionWithEmoji ) {
+            if( foundReactionWithEmoji.users.includes(req.user._id) ) return res.status(200).end()
+
+            foundReactionWithEmoji.users.push(req.user._id)
+            const newReactionCount = foundReactionWithEmoji.users.length
+            foundReactionWithEmoji.count = newReactionCount
+
+            try {
+                await message.save()
+            } catch (error) {
+                // Handle VersionError
+                if (error.name === 'VersionError') {
+                    return res.status(203).end()
+                } else {
+                    // If it's another type of error, handle it accordingly
+                    throw error;
+                }
+            }
+
+
+            req.io.to(`channel:${channelId}`).emit('MESSAGE_REACTION_ADD', {
+                userId,
+                messageId,
+                channelId,
+                ...( channel?.server? {guildId: channel.server} :{} ),
+                emoji: emojiId,
+                count: newReactionCount
+            })
+        } else {
+            const foundEmoji = findEmoji(emojiId)
+            if(!foundEmoji) return res.status(400).json({ message: 'Unknown Emoji' })
+
+            message.reactions.addToSet({
+                emoji: emojiId,
+                count: 1,
+                users: [req.user._id]
+            })
+
+            try {
+                await message.save()
+            } catch (error) {
+                // Handle VersionError
+                if (error.name === 'VersionError') {
+                    return res.status(203).end()
+                } else {
+                    // If it's another type of error, handle it accordingly
+                    throw error;
+                }
+            }
+
+            req.io.to(`channel:${channelId}`).emit('MESSAGE_REACTION_ADD', {
+                userId,
+                messageId,
+                channelId,
+                ...( channel?.server? {guildId: channel.server} :{} ),
+                emoji: emojiId,
+                count: 1
+            })
+        }
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+// delete message reaction
+router.delete('/:channelId/messages/:messageId/reactions/:emojiId/@me', authJwt, async (req, res) => {
+    try {
+        const {
+            channelId,
+            messageId,
+            emojiId
+        } = req.params
+
+        if (!db.mongoose.Types.ObjectId.isValid(channelId)) return res.status(400).json({ message: 'Invalid channel id' })
+        if (!db.mongoose.Types.ObjectId.isValid(messageId)) return res.status(400).json({ message: 'Invalid message id' })
+
+        const userId = req.user._id.toString()
+
+        const channel = await Channel.findById(channelId)
+        if (!channel) return res.status(404).json({ message: 'Channel not found' })
+        
+
+        const message = await Message.findOne({ _id: messageId, channel: channelId })
+        if (!message) return res.status(404).json({ message: 'Message not found' })
+        
+
+        const requiredPermissions = ['ADD_REACTIONS']
+        const userHasPermission = await checkChannelPermissions(req.user, channelId, requiredPermissions)
+        if (!userHasPermission) return res.status(403).json({ error: 'You do not have permission to perform this action.' })
+        
+        const foundReactionWithEmoji = message.reactions.find(reaction => decodeURIComponent(reaction.emoji) === decodeURIComponent(emojiId))
+        if (foundReactionWithEmoji) {
+            if (!foundReactionWithEmoji.users.includes(userId)) {
+                return res.status(203).end()
+            }
+
+            const newUsers = foundReactionWithEmoji.users.filter(user => user.toString() !== userId)
+            const newReactionCount = newUsers.length
+
+            if (newReactionCount <= 0) {
+                try {
+                    await Message.updateOne(
+                        { _id: messageId, channel: channelId },
+                        { $pull: { reactions: { emoji: decodeURIComponent(emojiId), users: userId } } }
+                    )
+                } catch (err) {
+                    return res.status(203).end()
+                }
+            } else {
+                try {
+                    await Message.updateOne(
+                        { _id: messageId, channel: channelId, 'reactions.emoji': decodeURIComponent(emojiId) },
+                        { $set: { 'reactions.$.users': newUsers, 'reactions.$.count': newReactionCount } }
+                    )
+                } catch (error) {
+                    // Handle VersionError
+                    if (error.name === 'VersionError') {
+                        return res.status(203).end()
+                    } else {
+                        // If it's another type of error, handle it accordingly
+                        throw error;
+                    }
+                }
+            }
+
+
+
+            const eventData = {
+                userId,
+                messageId,
+                channelId,
+                ...(channel.server ? { guildId: channel.server } : {}),
+                emoji: encodeURIComponent(emojiId),
+                count: newReactionCount
+            }
+            req.io.to(`channel:${channelId}`).emit('MESSAGE_REACTION_REMOVE', eventData)
+        }
+
+        res.status(200).end()
+    } catch (error) {
+        console.error(error)
+        res.status(500).json({ message: 'Internal server error' })
+    }
+})
+
+
 
 module.exports = router

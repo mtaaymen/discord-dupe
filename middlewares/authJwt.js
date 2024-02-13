@@ -5,11 +5,11 @@ const User = db.user
 
 const authJwt = async (req, res, next) => {
     try {
-        
+        let token
         let decodedToken
         let decodeTokenErr
         try {
-            const token = req.headers.authorization.split(' ')[1]
+            token = req.headers.authorization.split(' ')[1]
             decodedToken = jwt.verify(token, config.JWT_SECRET)
         } catch {
             decodeTokenErr = true
@@ -36,6 +36,7 @@ const authJwt = async (req, res, next) => {
         if (!user) return res.status(404).json({ message: 'User not found' })
         if( decodedToken.version !== user.version ) return res.status(401).json({ message: 'Token outdated' })
         req.user = user
+        req.userToken = token
         next()
     } catch (error) {
         console.log( error )
