@@ -107,12 +107,12 @@ function unsubscribeAllUsers(io, type, roomIds) {
             const roomName = roomId.includes(":") ? roomId : `${type}:${roomId}`
             const socketsInRoom = io.sockets.adapter.rooms.get(roomName)
             if (socketsInRoom) {
-            socketsInRoom.forEach(socketId => {
-                const socket = io.sockets.sockets.get(socketId)
-                leaveAndDeleteRoom( io, type, roomId, socket )
-                /*socket.leave(roomName)
-                socket.rooms.delete(roomName)*/
-            })
+                socketsInRoom.forEach(socketId => {
+                    const socket = io.sockets.sockets.get(socketId)
+                    leaveAndDeleteRoom( io, type, roomId, socket )
+                    /*socket.leave(roomName)
+                    socket.rooms.delete(roomName)*/
+                })
             }
         })
     } catch (error) {

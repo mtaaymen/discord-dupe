@@ -5,6 +5,9 @@ const Schema = mongoose.Schema
 const Avatar = mongoose.model(
     "Avatar",  new Schema({
         image: String,
+        identifier: {
+            type: String,
+        },
         user: {
             type: Schema.Types.ObjectId,
             ref: 'User'

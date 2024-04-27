@@ -165,7 +165,7 @@ db.mongoose
             /*const allUsers = await User.find({}).select('uid username')
             for( const user of allUsers ) {
 
-                user.avatar = "649a999736227fc390010d0c"
+                user.avatar = "defaultAvatar"
                 await user.save()
                 
                 user.uid = 0
@@ -185,7 +185,7 @@ db.mongoose
                     await user.save()
                     console.log( `set uid of ${user.username} to ${user.uid}` )
                 }
-            }*/
+            }/*
 
             /*const allGuilds = await Guild.find({})
             for( const _guild of allGuilds ) {

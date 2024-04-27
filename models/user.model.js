@@ -39,8 +39,14 @@ const User = mongoose.model(
             minlength: 6,
             maxlength: 1000,
         },
-        avatar: String,
-        banner: String,
+        avatar: {
+            type: String,
+            default: "defaultAvatar"
+        },
+        banner: {
+            type: String,
+            default: "rgb(59,3,162)"
+        },
         status: {
             type: String,
             enum: ['online', 'offline', 'idle', 'dnd'],

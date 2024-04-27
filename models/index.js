@@ -1,6 +1,4 @@
 const config = require('../config')
-const { GridFsStorage } = require('multer-gridfs-storage')
-const multer = require('multer')
 const mongoose = require('mongoose')
 mongoose.Promise = global.Promise
 
@@ -11,20 +9,6 @@ const db = {}
 conn.once('open', () => {
     db.gfs = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'uploads' })
 })
-
-const storage = new GridFsStorage({
-    url: config.MONGODB_URI,
-    file: (req, file) => {
-        return new Promise((resolve, reject) => {
-            const fileInfo = {
-                filename: file.originalname,
-                bucketName: 'uploads'
-            }
-            resolve(fileInfo)
-        })
-    }
-})
-db.avatarUpload = multer({ storage })
 
 
 db.mongoose = mongoose
@@ -45,6 +29,6 @@ db.guildBans = require("./guildBans.model")
 db.passwordReset = require("./passwordReset.model")
 db.attachment = require("./attachment.model")
 //db.rateLimit = require("./RateLimit.model")
-//db.avatar = require("./avatar.model")
+db.avatar = require("./avatar.model")
 
 module.exports = db

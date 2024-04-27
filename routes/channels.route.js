@@ -1077,17 +1077,17 @@ router.post('/:channelId/attachments', authJwt, async (req, res) => {
 })
 
 function getMagicNumber(buffer, bytesToRead = 4) {
-    const hexString = buffer.slice(0, bytesToRead).toString('hex');
-    return hexString;
+    const hexString = buffer.slice(0, bytesToRead).toString('hex')
+    return hexString
 }
 
 async function getImageSize(fileContent) {
     try {
-        const { width, height } = await sharp(fileContent).metadata();
+        const { width, height } = await sharp(fileContent).metadata()
         return { width, height }
     } catch (error) {
-        console.error('Error getting image size:', error);
-        return null;
+        console.error('Error getting image size:', error)
+        return null
     }
 }
 
@@ -1103,9 +1103,9 @@ function getFileDetails(filename) {
             mime: mimeType
         }
     } catch (error) {
-         return null
+        return null
     }
-  }
+}
 
 router.put('/attachments-uploads/:uuid/:filename', authJwt, async (req, res) => {
     try {
